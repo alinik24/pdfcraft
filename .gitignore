@@ -9,3 +9,16 @@ plan/
 /assets/models
 # A craft-fonts checkout used as the optional CRAFT_FONTS_DIR build input (CI and releases put it here).
 /craft-fonts
+
+# Local credentials and opt-in control-channel files never belong in source.
+/.env
+/.env.*
+!/.env.example
+/secrets/
+/.credentials/
+/control.json
+/*.control.json
+/*-control.json
+/*.pfx
+/*.p12
+/*-private.pem

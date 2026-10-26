@@ -21,10 +21,16 @@
 #>
 param(
   [ValidateSet('x64', 'x86', 'arm64')] [string] $Arch = 'x64',
-  [switch] $SkipBuild
+  [switch] $SkipBuild,
+  # A complete portable distribution without requiring WiX or creating an MSI.
+  [switch] $PortableOnly
 )
 $ErrorActionPreference = 'Stop'
 $Root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+$Commit = (& git -C $Root rev-parse HEAD).Trim()
+if ($Commit -notmatch '^[a-f0-9]{40}$' -or (& git -C $Root status --porcelain)) {
+  throw 'Release source must be a committed, clean Git checkout'
+}
 
 function Invoke-Native([string] $What, [scriptblock] $Block) {
   Write-Output "==> $What"
@@ -42,6 +48,7 @@ if (-not $Version) {
   }
 }
 if (-not $Version) { throw 'could not read [workspace.package] version from Cargo.toml' }
+if ($Version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$') { throw 'Version must be a safe numeric release version with an optional prerelease suffix' }
 # MSI ProductVersion is numeric (major.minor.build); pre-release tags are dropped there.
 $MsiVersion = ($Version -split '-')[0]
 
@@ -50,7 +57,7 @@ $Dist = if ($env:DIST) { $env:DIST } else { Join-Path $Root 'dist\release' }
 $TargetDir = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $Root 'target' }
 New-Item -ItemType Directory -Force -Path $Dist | Out-Null
 
-if (-not $env:PDFCRAFT_BUILD_SHA) { $env:PDFCRAFT_BUILD_SHA = (git -C $Root rev-parse HEAD 2>$null) }
+$env:PDFCRAFT_BUILD_SHA = $Commit
 if (-not $env:PDFCRAFT_BUILD_DATE) { $env:PDFCRAFT_BUILD_DATE = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd') }
 
 Write-Output "PdfCraft $Version for Windows $Arch ($Target)"
@@ -58,14 +65,36 @@ Write-Output "PdfCraft $Version for Windows $Arch ($Target)"
 if (-not $SkipBuild) {
   # Static CRT: no VC++ redistributable needed. Scoped to the target so host build scripts and
   # proc-macros are unaffected.
-  $flagVar = 'CARGO_TARGET_' + ($Target.ToUpper() -replace '-', '_') + '_RUSTFLAGS'
-  [Environment]::SetEnvironmentVariable($flagVar, '-C target-feature=+crt-static')
+  $previousFlags = $env:CARGO_ENCODED_RUSTFLAGS
+  $flags = @('-C', 'target-feature=+crt-static')
+  $remaps = @()
+  if ($env:USERPROFILE) { $remaps += @{ source = $env:USERPROFILE; target = '/build/user' } }
+  if ($env:CARGO_HOME) { $remaps += @{ source = $env:CARGO_HOME; target = '/build/cargo' } }
+  $remaps += @{ source = $Root; target = '/build/pdfcraft' }
+  if ($env:CRAFT_FONTS_DIR) { $remaps += @{ source = $env:CRAFT_FONTS_DIR; target = '/build/craft-fonts' } }
+  foreach ($remap in $remaps) {
+    $prefix = [IO.Path]::GetFullPath($remap.source)
+    $flags += "--remap-path-prefix=$prefix=$($remap.target)"
+    $flags += "--remap-path-prefix=$($prefix.Replace('\', '/'))=$($remap.target)"
+  }
+  # Explicit --target keeps these flags off host build scripts and proc macros.
+  # Encoded arguments also support source paths containing spaces.
+  $env:CARGO_ENCODED_RUSTFLAGS = $flags -join [char]0x1f
+  $env:PDFCRAFT_BUILD_LABEL = "html-review $($Commit.Substring(0, 12))"
   # Fail the build (rather than warn) if the icon/VERSIONINFO can't be embedded.
   $env:PDFCRAFT_REQUIRE_WINRES = '1'
-  Invoke-Native "cargo build ($Target)" { cargo build --release --locked -p pdfcraft -p pdfcraft-cli --target $Target }
+  try {
+    Invoke-Native "cargo build ($Target)" { cargo build --release --locked -p pdfcraft -p pdfcraft-cli --features pdfcraft-cli/html-review --target $Target -j 2 }
+  } finally { $env:CARGO_ENCODED_RUSTFLAGS = $previousFlags }
 }
 
 $Bin = Join-Path $TargetDir "$Target\release"
+if ($SkipBuild) {
+  $builtVersion = & (Join-Path $Bin 'pdfcraft-cli.exe') --version
+  if ($LASTEXITCODE -ne 0 -or $builtVersion -notlike "*html-review $($Commit.Substring(0, 12))*") {
+    throw 'SkipBuild requires a previously built binary labeled with this source commit'
+  }
+}
 
 # Check both binaries' PE headers before packaging. Machine (COFF header) must match -Arch, so an
 # x64 build can never ship labelled arm64 (#61). Subsystem (optional header): 2 = Windows GUI,
@@ -83,8 +112,8 @@ foreach ($check in @(@('pdfcraft.exe', 2), @('pdfcraft-cli.exe', 3))) {
   if ($h.Subsystem -ne $check[1]) { throw "$($check[0]) has PE subsystem $($h.Subsystem), expected $($check[1])" }
   Write-Output "ok $($check[0]): $Arch, PE subsystem $($h.Subsystem)"
 }
-$Stage = Join-Path $TargetDir "windows-package\$Arch"
-Remove-Item -Recurse -Force $Stage -ErrorAction SilentlyContinue
+$StageId = [Guid]::NewGuid().ToString('N')
+$Stage = Join-Path $TargetDir "windows-package\$Arch-$StageId"
 New-Item -ItemType Directory -Force -Path $Stage | Out-Null
 Copy-Item (Join-Path $Bin 'pdfcraft.exe'), (Join-Path $Bin 'pdfcraft-cli.exe') $Stage
 # The document icon embeds Lucide artwork: carry its ISC notice and the project licences
@@ -109,6 +138,8 @@ if (-not (Test-Path (Join-Path $Models 'ATTRIBUTION.txt')) -or -not (Get-ChildIt
 }
 
 # ---- MSI ---------------------------------------------------------------------------------------
+$Msi = $null
+if (-not $PortableOnly) {
 $Msi = Join-Path $Dist "pdfcraft-$Version-windows-$Arch.msi"
 Invoke-Native 'wix build' {
   wix build (Join-Path $PSScriptRoot 'pdfcraft.wxs') -arch $Arch `
@@ -122,10 +153,10 @@ Invoke-Native 'test-msi' { & (Get-Process -Id $PID).Path -NoProfile -File (Join-
 # wix writes its debug symbols (.wixpdb) next to the MSI; keep them out of the release assets.
 Remove-Item -Force -ErrorAction SilentlyContinue ([IO.Path]::ChangeExtension($Msi, '.wixpdb'))
 & (Join-Path $PSScriptRoot 'sign.ps1') $Msi
+}
 
 # ---- portable zip ------------------------------------------------------------------------------
-$Portable = Join-Path $TargetDir "windows-package\pdfcraft-$Version-windows-$Arch-portable"
-Remove-Item -Recurse -Force $Portable -ErrorAction SilentlyContinue
+$Portable = Join-Path $TargetDir "windows-package\$StageId\pdfcraft-$Version-windows-$Arch-portable"
 New-Item -ItemType Directory -Force -Path $Portable | Out-Null
 Copy-Item (Join-Path $Stage '*.exe') $Portable
 foreach ($f in 'NOTICE', 'LICENSE-document.txt') {
@@ -148,8 +179,20 @@ if ($env:CRAFT_FONTS_DIR) {
 # digital IDs go to PdfCraftData\ next to the exe instead of %APPDATA% (#157; see
 # crates/ui-egui/src/portable.rs).
 Copy-Item (Join-Path $PSScriptRoot 'portable.txt') $Portable
+$DocDir = Join-Path $Portable 'docs'
+New-Item -ItemType Directory -Force -Path $DocDir | Out-Null
+foreach ($f in 'html-installation.md', 'html-review.md', 'agent-review-architecture.md') {
+  Copy-Item -LiteralPath (Join-Path $Root "docs\$f") -Destination $DocDir
+}
+$SourceDirty = [bool](& git -C $Root status --porcelain)
+if ($SourceDirty -or (& git -C $Root rev-parse HEAD) -ne $Commit) { throw 'Release source changed during packaging' }
+[ordered]@{
+  version = $Version; commit = $env:PDFCRAFT_BUILD_SHA; target = $Target
+  html_review = $true; static_crt_requested = $true; signed = ((Get-AuthenticodeSignature (Join-Path $Stage 'pdfcraft.exe')).Status -eq 'Valid')
+} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Portable 'BUILD-INFO.json')
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README-portable.txt') -Destination $Portable
 $Zip = Join-Path $Dist "pdfcraft-$Version-windows-$Arch-portable.zip"
-Remove-Item -Force $Zip -ErrorAction SilentlyContinue
+if (Test-Path -LiteralPath $Zip) { throw "Release archive already exists: $Zip. Use a new version or archive it explicitly." }
 Compress-Archive -Path $Portable -DestinationPath $Zip
 
 # Smoke-test the CLI when this machine can run it. An ARM64 build made on an x64 runner can't run
@@ -160,4 +203,6 @@ if ($Arch -ne 'arm64' -or $HostArch -eq 'arm64') {
 } else {
   Write-Output "skipping pdfcraft-cli --version: an $Arch build doesn't run on this $HostArch machine"
 }
-Get-Item $Msi, $Zip | Format-Table Name, Length
+foreach ($Artifact in @($Msi, $Zip)) {
+  if ($Artifact) { Get-Item -LiteralPath $Artifact | Format-Table Name, Length }
+}

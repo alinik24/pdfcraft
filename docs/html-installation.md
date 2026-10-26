@@ -15,13 +15,14 @@ ordinary HTML. Reopening a saved native HTML layer does not require the browser.
 Build on a machine with sufficient free memory; `-j 2` limits parallel compilation.
 
 ```powershell
-git clone --branch feat/html-learning-review https://github.com/alinik24/pdfcraft.git
+git clone --branch feat/html-review-distribution https://github.com/alinik24/pdfcraft.git
 cd pdfcraft
 cargo build --release --locked -p pdfcraft -p pdfcraft-cli --features pdfcraft-cli/html-review -j 2
 .\target\release\pdfcraft.exe C:\documents\review.html
 ```
 
-The GUI enables `html-review` by default. The CLI requires the feature flag above.
+The GUI and CLI enable `html-review` by default on this distribution branch.
+The explicit feature flag above also works when building the contribution branch.
 Use a verified release commit rather than assuming a moving branch always has the
 same contents. Release binaries, signatures and checksums must be checked on the
 release page when available; this document does not claim an installer has shipped.

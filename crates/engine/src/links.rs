@@ -1,16 +1,17 @@
-//! Where PdfCraft and the ArtCraft community live on the web. One table, so the Help menu, the
+//! Fork support and upstream attribution. One table, so the Help menu, the
 //! About dialog, the home screen, the CLI and the README agree.
 
 use icu_properties::props::Script;
 use std::path::{Path, PathBuf};
 
-/// The app's name in ArtCraft URLs (`getartcraft.com/apps/{APP}`, `github.com/storytold/{APP}`).
+/// The upstream application's slug, retained for compatible command consumers.
 pub const APP: &str = "pdfcraft";
 
-pub const DISCORD: &str = "https://discord.gg/artcraft";
-pub const WEBSITE: &str = "https://getartcraft.com";
-pub const APP_PAGE: &str = "https://getartcraft.com/apps/pdfcraft";
-pub const GITHUB: &str = "https://github.com/storytold/pdfcraft";
+/// Legacy constant/command name retained for compatibility; opens fork support.
+pub const DISCORD: &str = "https://github.com/alinik24/pdfcraft/issues";
+pub const WEBSITE: &str = "https://github.com/storytold/pdfcraft";
+pub const APP_PAGE: &str = "https://github.com/alinik24/pdfcraft";
+pub const GITHUB: &str = "https://github.com/alinik24/pdfcraft";
 
 /// A link and the registry command that opens it.
 #[derive(Clone, Copy, Debug)]
@@ -24,10 +25,10 @@ pub struct Link {
 
 /// In the order they are shown. Discord comes first: it is where people get help fastest.
 pub const LINKS: &[Link] = &[
-    Link { command: "help.discord", label: "Join the ArtCraft Discord", url: DISCORD, icon: "messages-square" },
-    Link { command: "help.app_page", label: "PdfCraft web page", url: APP_PAGE, icon: "globe" },
+    Link { command: "help.discord", label: "Fork support", url: DISCORD, icon: "messages-square" },
+    Link { command: "help.app_page", label: "Fork documentation", url: APP_PAGE, icon: "globe" },
     Link { command: "help.github", label: "PdfCraft on GitHub", url: GITHUB, icon: "code-xml" },
-    Link { command: "help.website", label: "ArtCraft website", url: WEBSITE, icon: "external-link" },
+    Link { command: "help.website", label: "Upstream source", url: WEBSITE, icon: "external-link" },
 ];
 
 pub fn for_command(id: &str) -> Option<&'static Link> {
@@ -560,9 +561,11 @@ mod tests {
     }
 
     #[test]
-    fn urls_follow_the_artcraft_scheme() {
-        assert_eq!(super::APP_PAGE, format!("{}/apps/{}", super::WEBSITE, super::APP));
-        assert_eq!(super::GITHUB, format!("https://github.com/storytold/{}", super::APP));
+    fn fork_links_keep_support_and_upstream_credit_distinct() {
+        assert_eq!(super::APP_PAGE, "https://github.com/alinik24/pdfcraft");
+        assert_eq!(super::GITHUB, "https://github.com/alinik24/pdfcraft");
+        assert_eq!(super::DISCORD, "https://github.com/alinik24/pdfcraft/issues");
+        assert_eq!(super::WEBSITE, "https://github.com/storytold/pdfcraft");
         for l in super::LINKS {
             assert!(l.url.starts_with("https://"), "{}", l.url);
             assert!(crate::commands::command(l.command).is_some(), "{} is a registered command", l.command);

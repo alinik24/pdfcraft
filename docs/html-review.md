@@ -81,7 +81,7 @@ Automation retains read/write root confinement; no service/MCP server starts by 
 ## Local build
 
 ```powershell
-git clone --branch feat/html-learning-review https://github.com/alinik24/pdfcraft.git
+git clone --branch feat/html-review-distribution https://github.com/alinik24/pdfcraft.git
 cd pdfcraft
 cargo build --release -p pdfcraft -p pdfcraft-cli --features pdfcraft-cli/html-review -j 2
 .\target\release\pdfcraft.exe C:\path\document.html

@@ -38,6 +38,6 @@ winresource = "0.1"
 
 [features]
 html-review = ["pdfcraft-automation/html-review"]
-default = ["mcp"]
+default = ["mcp", "html-review"]
 # The opt-in MCP server (`pdfcraft-cli mcp`). Build with --no-default-features to leave it out.
 mcp = ["pdfcraft-automation/mcp"]

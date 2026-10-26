@@ -91,8 +91,8 @@ and external navigation need explicit product behavior. Static HTML import must
 not begin executing arbitrary page scripts just because a browser exists.
 
 Speech providers should be adapters, rather than hard-coded models. Discover and
-probe the user's existing Hermes configuration on its owning machine, preserving
-credentials there. A chat endpoint is not proof of speech support. Separately
+probe explicitly configured speech capabilities, preserving credentials in the
+user's local settings. A chat endpoint is not proof of speech support. Separately
 verify model listing, transcription and synthesis capabilities, language, audio
 format, timeouts, cancellation and resource use. Store model/probe provenance
 without keys. Do not silently substitute a paid provider or a different language.
