@@ -13,6 +13,7 @@ path = "src/main.rs"
 workspace = true
 
 [dependencies]
+pdfcraft-ai = { workspace = true, features = ["http"] }
 pdfcraft-render = { workspace = true }
 serde_json = { workspace = true }
 pdfcraft-engine = { workspace = true }

@@ -16,7 +16,11 @@ This is fixed-page editing. Original source is retained, so export a PDF before
 redaction, sanitizing, password protection or digital signing.
 
 See docs/html-review.md and docs/html-installation.md for formats and limits.
-Copilot, browser and semantic-design proposals in docs are not shipped features.
+The optional AI assistant uses selected text or the current page. Configure your
+own compatible model in All tools > AI assistant, then explicitly ask it to
+summarize, explain, answer or translate. Add as comment uses normal undo and save.
+Connection details, keys and answers are session-only. See docs/assistant.md.
+Voice copilot, browsing and semantic-design proposals are not shipped features.
 CLI use is optional; opening the GUI starts neither MCP nor a control server.
 BUILD-INFO.json records the source revision, target and signing status.
 Unsigned development binaries are not an official upstream installer.

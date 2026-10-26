@@ -7293,11 +7293,11 @@ title = "Translate documents"
 area = "J"
 tier = "P3"
 milestone = "M13"
-status = "planned"
-commands = []
-tools = []
-evidence = []
-notes = "through an optional AiProvider; never Adobe's cloud"
+status = "partial"
+commands = ["ai.translate"]
+tools = ["ai_translate"]
+evidence = ["crates/automation/src/assistant_tests.rs::assistant_tools_share_document_permissions_and_leave_the_file_unchanged"]
+notes = "Optional provider translates one current page or selected passage as plain text. Whole-document translation and regenerated translated documents are not implemented."
 
 [[feature]]
 id = "create.cloud-office-conversion"
@@ -9613,11 +9613,11 @@ title = "AI provider interface (local model or own endpoint), off by default"
 area = "N"
 tier = "P2"
 milestone = "M13"
-status = "planned"
+status = "partial"
 commands = []
 tools = []
-evidence = []
-notes = ""
+evidence = ["crates/ai/src/tests.rs::document_text_requires_encryption_off_loopback_even_without_a_key", "crates/ai/src/tests.rs::a_provider_cannot_echo_a_key_in_its_error", "crates/ui-egui/src/assistant.rs::opening_the_native_panel_is_off_and_never_sends_until_asked"]
+notes = "Opt-in, user-configured OpenAI-compatible transport; session-only connection/key. No model installer, persistent credential store or speech integration."
 
 [[feature]]
 id = "misc.ai-summary"
@@ -9625,11 +9625,11 @@ title = "Summarize a document"
 area = "N"
 tier = "P2"
 milestone = "M13"
-status = "planned"
-commands = []
-tools = []
-evidence = []
-notes = ""
+status = "partial"
+commands = ["ai.summary"]
+tools = ["ai_summarize"]
+evidence = ["crates/ui-egui/src/assistant.rs::selection_context_sends_only_the_selected_passage", "crates/automation/src/assistant_tests.rs::assistant_tools_share_document_permissions_and_leave_the_file_unchanged"]
+notes = "Selected passage or current page only, not whole-document summarization; explicit add-as-comment with normal undo/save."
 
 [[feature]]
 id = "misc.ai-ask"
@@ -9637,11 +9637,11 @@ title = "Ask questions with citations to pages"
 area = "N"
 tier = "P2"
 milestone = "M13"
-status = "planned"
-commands = []
-tools = []
-evidence = []
-notes = ""
+status = "partial"
+commands = ["ai.ask"]
+tools = ["ai_ask"]
+evidence = ["crates/automation/src/assistant_tests.rs::assistant_tools_share_document_permissions_and_leave_the_file_unchanged", "crates/ui-egui/src/assistant.rs::changing_tabs_cannot_put_an_answer_in_another_document", "crates/ui-egui/src/assistant.rs::assistant_comment_travels_inside_saved_html_and_reopens"]
+notes = "Single-page/selection questions and translation, supplied page markers, plain-text answers. No retrieval, conversation history, citation navigation or autonomous edits."
 
 [[feature]]
 id = "misc.ai-conversational-edit"

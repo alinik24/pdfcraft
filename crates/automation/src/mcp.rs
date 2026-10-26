@@ -255,7 +255,7 @@ fn meta_tools() -> [Value; 2] {
                 "required": ["name"],
                 "additionalProperties": false,
             },
-            "annotations": { "title": "Run any PdfCraft tool", "readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": false },
+            "annotations": { "title": "Run any PdfCraft tool", "readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": true },
         }),
     ]
 }
@@ -552,12 +552,13 @@ fn error(id: Value, code: i64, message: &str) -> Value {
 }
 
 fn tool_json(t: &crate::ToolDef) -> Value {
+    let external = matches!(t.name, "ai_summarize" | "ai_ask" | "ai_translate");
     json!({
         "name": t.name,
         "title": t.title,
         "description": t.description,
         "inputSchema": t.input_schema,
-        "annotations": { "title": t.title, "readOnlyHint": t.read_only, "destructiveHint": t.destructive, "idempotentHint": t.read_only || matches!(t.name, "doc_save" | "doc_optimize" | "doc_export_data" | "measure_export" | "doc_export_images" | "doc_export_office" | "doc_export_all_images" | "doc_export_text" | "image_save"), "openWorldHint": false },
+        "annotations": { "title": t.title, "readOnlyHint": t.read_only, "destructiveHint": t.destructive, "idempotentHint": !external && (t.read_only || matches!(t.name, "doc_save" | "doc_optimize" | "doc_export_data" | "measure_export" | "doc_export_images" | "doc_export_office" | "doc_export_all_images" | "doc_export_text" | "image_save")), "openWorldHint": external },
     })
 }
 
@@ -593,6 +594,19 @@ mod tests {
 
     use super::{McpServer, Resource, first_sentence, parse_uri};
     use crate::Automation;
+
+    #[test]
+    fn assistant_tools_disclose_external_requests_and_are_not_idempotent() {
+        let tools = crate::tools();
+        for name in ["ai_summarize", "ai_ask", "ai_translate"] {
+            let tool = tools.iter().find(|t| t.name == name).unwrap();
+            let v = super::tool_json(tool);
+            assert_eq!(v["annotations"]["openWorldHint"], true);
+            assert_eq!(v["annotations"]["idempotentHint"], false);
+            assert_eq!(v["annotations"]["readOnlyHint"], true);
+        }
+        assert_eq!(super::meta_tools()[1]["annotations"]["openWorldHint"], true);
+    }
 
     #[test]
     fn conventions_panic_is_a_tool_error() {

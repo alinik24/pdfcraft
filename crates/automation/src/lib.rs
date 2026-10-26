@@ -15,6 +15,8 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 mod a11y;
+#[cfg(test)]
+mod assistant_tests;
 mod batch;
 mod comments;
 mod content;
@@ -117,6 +119,9 @@ const FIND_MAX_WARNING_BYTES: usize = 1024;
 
 /// A headless PdfCraft session driven by tool calls.
 pub struct Automation {
+    /// Explicitly supplied by the host. No provider or network transport by default.
+    pub ai_provider: Option<pdfcraft_ai::Provider>,
+    pub ai_transport: Option<Arc<dyn pdfcraft_ai::Transport>>,
     session: Session,
     root: Option<PathBuf>,
     /// The read and write folders of `--automation-read-root` / `--automation-write-root`.
@@ -142,6 +147,8 @@ impl Default for Automation {
 impl Automation {
     pub fn new() -> Self {
         Self {
+            ai_provider: None,
+            ai_transport: None,
             session: Session::new(),
             root: None,
             roots: None,
@@ -213,6 +220,7 @@ impl Automation {
         tools::check_args(def, args)?;
         let a = Args(args);
         let out = match name {
+            "ai_summarize" | "ai_ask" | "ai_translate" => self.assistant_request(name, &a)?,
             #[cfg(feature = "html-review")]
             "doc_export_pdf" => self.doc_export_pdf(&a)?,
             #[cfg(feature = "html-review")]
@@ -2185,6 +2193,22 @@ impl Automation {
         };
         let out: Vec<Value> = pages.iter().zip(texts).map(|(p, t)| json!({ "page": p + 1, "text": text(&t) })).collect();
         Ok(json!({ "pages": out }))
+    }
+
+    fn assistant_request(&mut self, name: &str, a: &Args) -> Result<Value> {
+        let provider = self.ai_provider.clone().ok_or_else(|| failed("the AI assistant is not configured"))?;
+        let transport = self.ai_transport.clone().ok_or_else(|| failed("no AI transport is configured"))?;
+        let doc = self.doc_to_copy(a)?;
+        let id = doc.id;
+        let page = self.page(a)?;
+        let text = self.page_texts(id, &[page])?.into_iter().next().ok_or_else(|| failed("this page has no readable text"))?.plain_text();
+        let task = match name {
+            "ai_ask" => pdfcraft_ai::Task::Ask { question: a.str("question")?.into() },
+            "ai_translate" => pdfcraft_ai::Task::Translate { language: a.str("language")?.into() },
+            _ => pdfcraft_ai::Task::Summarize,
+        };
+        let answer = pdfcraft_ai::run(&provider, transport.as_ref(), &task, &[pdfcraft_ai::Page { number: page + 1, text }]).map_err(failed)?;
+        Ok(json!({ "doc": id.0, "page": page + 1, "answer": answer.text, "truncated": answer.coverage.truncated }))
     }
 
     /// Matches in document order, extracting page text in growing batches and stopping as soon as

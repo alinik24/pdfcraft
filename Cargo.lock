@@ -4178,6 +4178,7 @@ dependencies = [
  "egui",
  "fmv-macos-events",
  "log",
+ "pdfcraft-ai",
  "pdfcraft-engine",
  "pdfcraft-ui-egui",
  "pollster 1.0.1",
@@ -4204,6 +4205,17 @@ dependencies = [
  "pdfcraft-fonts",
  "pdfcraft-model",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "pdfcraft-ai"
+version = "0.13.0"
+dependencies = [
+ "rustls-native-certs",
+ "serde_json",
+ "thiserror 2.0.21",
+ "ureq",
+ "url",
 ]
 
 [[package]]
@@ -4235,6 +4247,7 @@ dependencies = [
  "base64 0.22.1",
  "flate2",
  "image",
+ "pdfcraft-ai",
  "pdfcraft-cos",
  "pdfcraft-engine",
  "pdfcraft-fonts",
@@ -4256,6 +4269,7 @@ name = "pdfcraft-cli"
 version = "0.13.0"
 dependencies = [
  "base64 0.22.1",
+ "pdfcraft-ai",
  "pdfcraft-audit",
  "pdfcraft-automation",
  "pdfcraft-cos",
@@ -4643,6 +4657,7 @@ dependencies = [
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
+ "pdfcraft-ai",
  "pdfcraft-cos",
  "pdfcraft-engine",
  "pdfcraft-fonts",

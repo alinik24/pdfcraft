@@ -21,6 +21,7 @@ craft-print = { git = "https://github.com/storytold/craft-libs", version = "0.1.
 # Whether a path stored in a document may be opened (GoToR link targets).
 craft-docpath = { version = "0.1.0", git = "https://github.com/storytold/craft-libs", rev = "82a24b006eefa036b43c09a67fb9a3fbd17ffe63" }
 # internal
+pdfcraft-ai = { path = "crates/ai", version = "0.13.0" }
 pdfcraft-geom = { path = "crates/geom", version = "0.13.0" }
 pdfcraft-filters = { path = "crates/filters", version = "0.13.0" }
 pdfcraft-cos = { path = "crates/cos", version = "0.13.0" }

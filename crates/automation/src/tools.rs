@@ -121,6 +121,12 @@ pub fn tools() -> Vec<ToolDef> {
     let save_out = json!({ "type": "string", "description": "File to write. Omit to open the result as a new unsaved document instead." });
     let open = json!({ "type": "boolean", "description": "Also open the result as a new document (default: only when out is omitted)." });
     vec![
+        t("ai_summarize", "Summarize page", "Send one page's text to the explicitly configured AI provider. External network access; disabled without host configuration. Does not edit or save the document.")
+            .ro().cmd("ai.summary").with(schema(json!({"doc": doc(), "page": {"type":"integer","minimum":1}}), &["doc", "page"])),
+        t("ai_ask", "Ask about page", "Ask the explicitly configured AI provider about one page. External network access; disabled without host configuration. Does not edit or save the document.")
+            .ro().cmd("ai.ask").with(schema(json!({"doc": doc(), "page": {"type":"integer","minimum":1}, "question":{"type":"string","minLength":1,"maxLength":4000}}), &["doc", "page", "question"])),
+        t("ai_translate", "Translate page", "Translate one page using the explicitly configured AI provider. External network access; disabled without host configuration. Does not edit or save the document.")
+            .ro().cmd("ai.translate").with(schema(json!({"doc": doc(), "page": {"type":"integer","minimum":1}, "language":{"type":"string","minLength":1,"maxLength":64}}), &["doc", "page", "language"])),
         #[cfg(feature = "html-review")]
         t("html_review_inspect", "Inspect HTML review", "Inspect a local HTML review or native page-layer container, including structured annotations. Plain source is limited to 16 MiB, validated native containers to 128 MiB. Does not execute document scripts.")
             .ro()

@@ -930,7 +930,13 @@ fn run_child(exe: &Path, file: &Path, dpi: &str, timeout: Duration) -> serde_jso
 // ---- automation --------------------------------------------------------------------------------
 
 fn automation(args: &[String]) -> Result<pdfcraft_automation::Automation, String> {
-    let a = pdfcraft_automation::Automation::new();
+    let mut a = pdfcraft_automation::Automation::new();
+    if let (Ok(endpoint), Ok(model)) = (std::env::var("PDFCRAFT_AI_ENDPOINT"), std::env::var("PDFCRAFT_AI_MODEL")) {
+        let provider = pdfcraft_ai::Provider::new(pdfcraft_ai::Api::OpenAi, endpoint, model).with_key(std::env::var("PDFCRAFT_AI_API_KEY").ok());
+        provider.url().map_err(|e| e.to_string())?;
+        a.ai_provider = Some(provider);
+        a.ai_transport = Some(std::sync::Arc::new(pdfcraft_ai::http::HttpTransport));
+    }
     match flag(args, "--root") {
         Some(root) => a.with_root(root).map_err(|e| format!("--root {root}: {e}")),
         None => Ok(a),

@@ -31,6 +31,12 @@ The native editor uses existing PDF tools and their limitations. Source-retainin
 
 The CLI supports standard document/comment/edit/save operations, HTML review inspection/export and a separate PDF export. MCP and UI control are opt-in.
 
+The current source branch also implements the existing **AI assistant** entry for
+selected-text/current-page summaries, questions and translation, with an explicit
+**Add as comment** action. This implementation is under validation and is not in
+portable prerelease `.2`. It is off by default and uses a model you configure;
+keys and answers are session-only. See [assistant behavior and limits](docs/assistant.md).
+
 [The researched architecture proposal](docs/agent-review-architecture.md) describes semantic HTML/SVG, stable object IDs, W3C annotation anchors, source-to-page geometry, optional diagram profiles, a selection-aware copilot, speech adapters and conversion fidelity reports. It is a proposal, not an implementation claim.
 
 ## Attribution and support

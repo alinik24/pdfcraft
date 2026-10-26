@@ -417,6 +417,17 @@ fn app_creator<'a>(
             app.motion.source = Some(motion::source());
         }
         app.update_source = Some(std::sync::Arc::new(updates::latest_release));
+        app.ai_transport = Some(std::sync::Arc::new(pdfcraft_ai::http::HttpTransport));
+        // Explicit process configuration may prefill the existing panel. Enabling it and
+        // sending a request remain user actions; none of these values are persisted.
+        if let (Ok(endpoint), Ok(model)) = (std::env::var("PDFCRAFT_AI_ENDPOINT"), std::env::var("PDFCRAFT_AI_MODEL")) {
+            let provider = pdfcraft_ai::Provider::new(pdfcraft_ai::Api::OpenAi, endpoint, model).with_key(std::env::var("PDFCRAFT_AI_API_KEY").ok());
+            if provider.url().is_ok() {
+                app.assistant.endpoint = provider.endpoint;
+                app.assistant.model = provider.model;
+                app.assistant.key = provider.api_key.unwrap_or_default();
+            }
+        }
         app.printer_source = Some(pdfcraft_ui_egui::system_printers());
         app.os_key_store_ids = cfg!(any(target_os = "macos", target_os = "windows"));
         #[cfg(target_os = "macos")]

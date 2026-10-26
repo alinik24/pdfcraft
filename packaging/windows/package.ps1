@@ -202,14 +202,14 @@ if ($env:CRAFT_FONTS_DIR) {
 Copy-Item (Join-Path $PSScriptRoot 'portable.txt') $Portable
 $DocDir = Join-Path $Portable 'docs'
 New-Item -ItemType Directory -Force -Path $DocDir | Out-Null
-foreach ($f in 'html-installation.md', 'html-review.md', 'agent-review-architecture.md') {
+foreach ($f in 'html-installation.md', 'html-review.md', 'agent-review-architecture.md', 'assistant.md') {
   Copy-Item -LiteralPath (Join-Path $Root "docs\$f") -Destination $DocDir
 }
 $SourceDirty = [bool](& git -C $Root status --porcelain)
 if ($SourceDirty -or (& git -C $Root rev-parse HEAD) -ne $Commit) { throw 'Release source changed during packaging' }
 [ordered]@{
   version = $Version; commit = $env:PDFCRAFT_BUILD_SHA; target = $Target
-  html_review = $true; static_crt_requested = $true; signed = ((Get-AuthenticodeSignature (Join-Path $Stage 'pdfcraft.exe')).Status -eq 'Valid')
+  html_review = $true; ai_assistant = $true; static_crt_requested = $true; signed = ((Get-AuthenticodeSignature (Join-Path $Stage 'pdfcraft.exe')).Status -eq 'Valid')
 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Portable 'BUILD-INFO.json')
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README-portable.txt') -Destination $Portable
 $Zip = Join-Path $Dist "pdfcraft-$Version-windows-$Arch-portable.zip"
