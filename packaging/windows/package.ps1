@@ -68,6 +68,8 @@ if (-not $SkipBuild) {
   # Static CRT: no VC++ redistributable needed. Scoped to the target so host build scripts and
   # proc-macros are unaffected.
   $previousFlags = $env:CARGO_ENCODED_RUSTFLAGS
+  $nativeFlagsName = "CFLAGS_$Target"
+  $previousNativeFlags = [Environment]::GetEnvironmentVariable($nativeFlagsName)
   $flags = @('-C', 'target-feature=+crt-static')
   $remaps = @()
   if ($env:USERPROFILE) { $remaps += @{ source = $env:USERPROFILE; target = '/build/user' } }
@@ -81,13 +83,28 @@ if (-not $SkipBuild) {
   }
   # Explicit --target keeps these flags off host build scripts and proc macros.
   # Encoded arguments also support source paths containing spaces.
+  # Rust remapping does not affect C __FILE__ strings in native dependencies.
+  # MSVC's trim option removes the user-profile prefix from those diagnostics.
+  # Keep this scoped to the target and restore the caller's flags after building.
+  if ($Arch -ne 'arm64' -and $env:USERPROFILE) {
+    $trimFlag = '/d1trimfile:' + [IO.Path]::GetFullPath($env:USERPROFILE).TrimEnd('\') + '\'
+    if ($env:CC_SHELL_ESCAPED_FLAGS -eq '1') {
+      $trimFlag = "'" + $trimFlag.Replace("'", "'\''") + "'"
+    } elseif ($trimFlag -match '\s') {
+      throw 'For a user-profile path with spaces, set CC_SHELL_ESCAPED_FLAGS=1 and shell-quote existing native compiler flags.'
+    }
+    [Environment]::SetEnvironmentVariable($nativeFlagsName, "$previousNativeFlags $trimFlag".Trim())
+  }
   $env:CARGO_ENCODED_RUSTFLAGS = $flags -join [char]0x1f
   $env:PDFCRAFT_BUILD_LABEL = "html-review $($Commit.Substring(0, 12))"
   # Fail the build (rather than warn) if the icon/VERSIONINFO can't be embedded.
   $env:PDFCRAFT_REQUIRE_WINRES = '1'
   try {
     Invoke-Native "cargo build ($Target)" { cargo build --release --locked -p pdfcraft -p pdfcraft-cli --features pdfcraft-cli/html-review --target $Target -j 2 }
-  } finally { $env:CARGO_ENCODED_RUSTFLAGS = $previousFlags }
+  } finally {
+    $env:CARGO_ENCODED_RUSTFLAGS = $previousFlags
+    [Environment]::SetEnvironmentVariable($nativeFlagsName, $previousNativeFlags)
+  }
 }
 
 $Bin = Join-Path $TargetDir "$Target\release"
