@@ -5,7 +5,7 @@ PdfCraft's original authors and contributors provide the Rust PDF editor. This f
 
 Open HTML documents alongside PDFs, select text, highlight passages, add comments and replies, draw, edit the page revision, undo changes and save the review inside the HTML file. Agents can extract structured review JSON without an application-local database.
 
-**Development status:** native HTML functionality has local test coverage. Public binary packaging, independent review and second-machine acceptance must be checked in the release notes. The planned voice copilot, embedded browser and semantic design toolkit are not shipped features.
+**Development status:** the [Windows x64 portable prerelease](https://github.com/alinik24/pdfcraft/releases/tag/v0.13.0-html-review.2) passed local GUI checks and 23 HTML/PDF checks after public-download installation on a second machine. Interactive GUI use on that second machine remains unverified. Independent static review was limited; see the release notes. The planned voice copilot, embedded browser and semantic design toolkit are not shipped features.
 
 ## Install from source
 

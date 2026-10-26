@@ -1,11 +1,30 @@
 # Install the PdfCraft HTML annotation contribution
 
-Status: source build instructions; release packaging and installation on a second Windows machine remain pending.
+Status: Windows x64 portable development prerelease published. Public-download
+installation and 23 HTML/PDF acceptance checks passed on a second Windows machine.
+Interactive GUI checks passed locally; interactive GUI use on that second machine
+has not been verified.
 Reviewed 2026-10-26.
 
 This contribution by @alinik24 is based on [PdfCraft by the ArtCraft team and contributors](https://github.com/storytold/pdfcraft).
 It adds HTML files to the existing PDF editor. It is not an official upstream release.
 The upstream download does not necessarily include this contribution.
+
+## Install the portable release
+
+Download the ZIP and `SHA256SUMS` from
+[v0.13.0-html-review.2](https://github.com/alinik24/pdfcraft/releases/tag/v0.13.0-html-review.2).
+Verify the ZIP with `Get-FileHash -Algorithm SHA256` before extracting it. Its
+SHA-256 is `6e022ff18d834129deaffe848ad188e69a3ef49fb84740088d00dac539b8ad91`.
+Extract the complete archive into a writable folder and open `pdfcraft.exe`.
+Keep the bundled models, licences, notices and `portable.txt` beside it.
+Portable settings and recovery files live in `PdfCraftData/` beside this copy.
+This development package is unsigned and is not an MSI installer.
+
+The tested binaries were built from source commit
+`6894630a1b9b4005c104fc803c640a34620912a0`.
+The installation test downloaded the public release, verified its checksum, and
+tested HTML/PDF open, annotations, editing, undo/redo, save, extraction and reopening.
 
 ## Build on Windows
 
@@ -24,9 +43,9 @@ cargo build --release --locked -p pdfcraft -p pdfcraft-cli --features pdfcraft-c
 The GUI and CLI enable `html-review` by default on this distribution branch.
 The explicit feature flag above also works when building the contribution branch.
 Use a verified release commit rather than assuming a moving branch always has the
-same contents. Release binaries, signatures and checksums must be checked on the
-release page when available; this document does not claim an installer has shipped.
-Other operating systems and the web build have not been validated for this feature.
+same contents. Use the release tag above to reproduce the tested source revision.
+WASM compilation was checked; HTML runtime behavior on other operating systems
+and the web build has not been validated.
 
 Optional Japanese fonts use the existing upstream `CRAFT_FONTS_DIR` build input;
 see the root README and asset policy. A build without that input has limited

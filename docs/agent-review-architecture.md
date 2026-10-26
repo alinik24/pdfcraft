@@ -64,8 +64,26 @@ pages or a reflow invalidates positions until the mapping is regenerated.
 
 ## Copilot interaction
 
-Hover or keyboard focus should show the object's type, ID, source relationship and
-available actions. Selecting objects supplies that exact selection to the copilot.
+### Product language and visual consistency
+
+Extend the existing editor, menus, selection controls and Comments panel. Reuse
+the existing theme, spacing, typography, Lucide icons and interaction patterns;
+do not introduce a separate agent workspace or console for document editing.
+Use the existing localized terminology for actions already supported by PdfCraft.
+New labels should describe the user's action in plain language, for example
+Explain, Summarize, Read aloud, Dictate and Review changes. These are proposed
+labels, not controls included in the current release.
+
+Do not expose implementation prompts, coding instructions, tool names, model
+routing commands, JSON, schema syntax or package internals as normal editing
+controls. Keep technical contracts in developer documentation and explicit
+inspection tools. Exported documents must not require those commands to be read
+or reviewed. Use icons with accessible labels and tooltips; do not substitute
+emoji, an unrelated icon set or new symbols for established actions.
+
+Hover or keyboard focus should show a readable object description and available
+actions. Keep raw IDs, schema types and provenance details in an optional
+inspection view. Selecting objects supplies that exact selection to the copilot.
 An action bar in the existing editor can offer explain, summarize, comment,
 rewrite, diagram edit, read aloud and dictate. It must also work without hover,
 microphone or a model connection.
