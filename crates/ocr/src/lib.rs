@@ -55,7 +55,8 @@ impl Models {
     }
 
     /// Look for the models: `$PDFCRAFT_MODELS`, then where the release packages install them
-    /// beside the executable ([`Models::dirs_beside_exe`]), then the source tree's `assets/models/`.
+    /// beside the executable ([`Models::dirs_beside_exe`]). Debug builds also search the source
+    /// tree's `assets/models/`; releases must not embed the build machine's source directory.
     pub fn find() -> Option<Models> {
         Self::search_dirs().iter().find_map(|d| Self::in_dir(d))
     }
@@ -69,6 +70,7 @@ impl Models {
         if let Some(exe) = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)) {
             dirs.extend(Self::dirs_beside_exe(&exe));
         }
+        #[cfg(debug_assertions)]
         dirs.push(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/models"));
         dirs
     }
