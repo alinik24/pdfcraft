@@ -5,7 +5,7 @@ PdfCraft's original authors and contributors provide the Rust PDF editor. This f
 
 Open HTML documents alongside PDFs, select text, highlight passages, add comments and replies, draw, edit the page revision, undo changes and save the review inside the HTML file. Agents can extract structured review JSON without an application-local database.
 
-**Development status:** the [Windows x64 portable prerelease](https://github.com/alinik24/pdfcraft/releases/tag/v0.13.0-html-review.2) passed local GUI checks and 23 HTML/PDF checks after public-download installation on a second machine. Interactive GUI use on that second machine remains unverified. Independent static review was limited; see the release notes. The planned voice copilot, embedded browser and semantic design toolkit are not shipped features.
+**Development status:** native HTML review passed local GUI checks and 23 HTML/PDF checks after public-download installation on a second machine. Interactive GUI use on that second machine remains unverified. See the [Windows portable releases](https://github.com/alinik24/pdfcraft/releases) for each version's assistant support, checksums and validation. Voice, embedded browsing and semantic design editing remain future work.
 
 ## Install from source
 
@@ -31,10 +31,10 @@ The native editor uses existing PDF tools and their limitations. Source-retainin
 
 The CLI supports standard document/comment/edit/save operations, HTML review inspection/export and a separate PDF export. MCP and UI control are opt-in.
 
-The current source branch also implements the existing **AI assistant** entry for
+The existing **AI assistant** entry now supports
 selected-text/current-page summaries, questions and translation, with an explicit
-**Add as comment** action. This implementation is under validation and is not in
-portable prerelease `.2`. It is off by default and uses a model you configure;
+**Add as comment** action. Portable versions before `.3` do not include it.
+It is off by default and uses a model you configure;
 keys and answers are session-only. See [assistant behavior and limits](docs/assistant.md).
 
 [The researched architecture proposal](docs/agent-review-architecture.md) describes semantic HTML/SVG, stable object IDs, W3C annotation anchors, source-to-page geometry, optional diagram profiles, a selection-aware copilot, speech adapters and conversion fidelity reports. It is a proposal, not an implementation claim.

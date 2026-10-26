@@ -1,9 +1,10 @@
 # Install the PdfCraft HTML annotation contribution
 
-Status: Windows x64 portable development prerelease published. Public-download
-installation and 23 HTML/PDF acceptance checks passed on a second Windows machine.
-Interactive GUI checks passed locally; interactive GUI use on that second machine
-has not been verified.
+Status: Windows x64 portable development releases. The earlier `.2` release passed
+public-download installation and 23 HTML/PDF checks on a second Windows machine,
+plus local GUI checks. The optional AI assistant starts with `.3`; see each
+release's notes for its completed checks. Interactive GUI use on the second
+machine has not been verified.
 Reviewed 2026-10-26.
 
 This contribution by @alinik24 is based on [PdfCraft by the ArtCraft team and contributors](https://github.com/storytold/pdfcraft).
@@ -13,18 +14,20 @@ The upstream download does not necessarily include this contribution.
 ## Install the portable release
 
 Download the ZIP and `SHA256SUMS` from
-[v0.13.0-html-review.2](https://github.com/alinik24/pdfcraft/releases/tag/v0.13.0-html-review.2).
-Verify the ZIP with `Get-FileHash -Algorithm SHA256` before extracting it. Its
-SHA-256 is `6e022ff18d834129deaffe848ad188e69a3ef49fb84740088d00dac539b8ad91`.
+[v0.13.0-html-review.3](https://github.com/alinik24/pdfcraft/releases/tag/v0.13.0-html-review.3).
+Verify the ZIP with `Get-FileHash -Algorithm SHA256` and compare its hash with the
+downloaded `SHA256SUMS` before extracting it.
 Extract the complete archive into a writable folder and open `pdfcraft.exe`.
 Keep the bundled models, licences, notices and `portable.txt` beside it.
 Portable settings and recovery files live in `PdfCraftData/` beside this copy.
 This development package is unsigned and is not an MSI installer.
 
-The tested binaries were built from source commit
-`6894630a1b9b4005c104fc803c640a34620912a0`.
-The installation test downloaded the public release, verified its checksum, and
-tested HTML/PDF open, annotations, editing, undo/redo, save, extraction and reopening.
+`BUILD-INFO.json` records the complete source commit for that package. Use its
+release tag to reproduce the source; do not infer a binary's revision from a moving
+branch. The earlier installation test downloaded the public release, verified its
+checksum, and tested HTML/PDF open, annotations, editing, undo/redo, save, extraction
+and reopening. Assistant behavior and configuration are described in
+[AI assistant](assistant.md).
 
 ## Build on Windows
 

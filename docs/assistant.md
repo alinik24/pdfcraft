@@ -1,7 +1,8 @@
 # AI assistant
 
-Implementation under validation on this fork; not included in portable prerelease
-`v0.13.0-html-review.2`.
+Development feature on this fork, introduced for portable prerelease `.3`.
+Earlier portable builds do not include it. See the release notes for the exact
+source revision and completed validation of each version.
 
 The existing **All tools > AI assistant** entry is the home for this feature.
 It uses the current editor and theme. There is no separate document workspace,
