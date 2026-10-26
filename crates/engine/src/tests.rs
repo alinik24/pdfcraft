@@ -36,6 +36,170 @@ fn session_with(n: usize) -> (Session, DocId) {
     (s, id)
 }
 
+#[cfg(feature = "html-review")]
+#[test]
+fn native_html_tabs_do_not_share_the_renderers_temporary_title() {
+    let (mut session, pdf_id) = session_with(1);
+    session.apply(pdf_id, Edit::SetInfo { key: "Title".into(), value: "document.html".into() }).unwrap();
+    session.apply(pdf_id, Edit::SetInitialView(Box::new(InitialView { display_title: true, ..Default::default() }))).unwrap();
+    let pdf = session.save_pdf_bytes(pdf_id).unwrap();
+    let package = pdfcraft_html_review::native::save_native("<p>Source</p>", &pdf, serde_json::json!([])).unwrap();
+    let one = session.open("one.html", None, Arc::new(package.clone()), None).unwrap();
+    let two = session.open("two.html", None, Arc::new(package), None).unwrap();
+    assert_eq!(session.get(one).unwrap().display_name(), "one.html");
+    assert_eq!(session.get(two).unwrap().display_name(), "two.html");
+    assert_eq!(session.get(pdf_id).unwrap().display_name(), "document.html");
+    session.apply(one, Edit::SetInfo { key: "Title".into(), value: "My lesson".into() }).unwrap();
+    assert_eq!(session.get(one).unwrap().display_name(), "My lesson");
+}
+
+#[cfg(feature = "html-review")]
+#[test]
+fn native_html_file_reads_are_bounded_before_allocation() {
+    let directory = tempfile::tempdir().unwrap();
+    let oversized = directory.path().join("oversized.html");
+    std::fs::File::create(&oversized).unwrap().set_len(pdfcraft_html_review::native::MAX_PACKAGE_BYTES as u64 + 1).unwrap();
+    assert!(read_document_path(&oversized).unwrap_err().to_string().contains("128 MiB"));
+    assert!(read_document_path(directory.path().join("missing.htm")).is_err());
+    let normal = directory.path().join("ordinary.pdf");
+    let bytes = fixture(1);
+    std::fs::write(&normal, &bytes).unwrap();
+    assert_eq!(read_document_path(normal).unwrap(), bytes);
+}
+
+#[cfg(feature = "html-review")]
+#[test]
+fn native_html_uses_existing_edit_history_save_and_recovery() {
+    let source = "<!doctype html><html><body><p>Original HTML stays unchanged.</p><img src='data:image/png;base64,AAAA'></body></html>";
+    let packaged = pdfcraft_html_review::native::save_native(source, &fixture(2), serde_json::json!([])).expect("native HTML package");
+    let mut session = Session::new().with_clock(|| 1_700_000_000);
+    let id = session.open("lesson.html", Some("lesson.html".into()), Arc::new(packaged), None).expect("open HTML in native session");
+    assert!(session.get(id).expect("document").is_html());
+    assert_eq!(session.get(id).expect("document").info.pages.len(), 2);
+    let shape = Shape::Note { at: [20.0, 150.0], icon: NoteIcon::Comment };
+    session
+        .apply(
+            id,
+            Edit::AddAnnotation(NewAnnotation {
+                page: 0,
+                style: Style::default_for(&shape),
+                shape,
+                contents: "Native sticky note".into(),
+                author: "Test".into(),
+            }),
+        )
+        .expect("existing annotation edit");
+    session.apply(id, Edit::RotatePages { pages: vec![1], degrees: 90 }).expect("existing page edit");
+    session.undo(id).expect("existing undo");
+    assert_eq!(session.get(id).expect("document").info.pages[1].rotation, 0);
+    session.redo(id).expect("existing redo");
+    let snapshots = session.autosave_snapshots();
+    assert_eq!(snapshots.len(), 1);
+    let (recovery_source, recovery_pdf) = pdfcraft_html_review::native::unpack_native(&snapshots[0].bytes).expect("HTML recovery package");
+    assert_eq!(recovery_source, source);
+    assert!(recovery_pdf.starts_with(b"%PDF-"));
+    let saved = session.save_bytes(id).expect("format-aware save");
+    session.check_save(id, &saved).expect("preflight HTML and PDF layer");
+    let (kept_source, pdf) = pdfcraft_html_review::native::unpack_native(&saved).expect("saved HTML package");
+    assert_eq!(kept_source, source);
+    assert_eq!(pdf.as_slice(), session.save_pdf_bytes(id).expect("raw PDF export").as_slice());
+    session.mark_saved(id, saved.clone(), Some("edited.html".into())).expect("saved marker");
+    assert!(!session.get(id).expect("document").dirty);
+    assert_eq!(session.save_bytes(id).expect("stable save"), saved);
+    let reopened = session.open("edited.html", None, saved, None).expect("reopen embedded layer without browser");
+    let document = session.get(reopened).expect("reopened document");
+    assert!(document.is_html());
+    assert_eq!(document.info.pages[1].rotation, 90);
+    assert!(document.info.annotations.iter().any(|annotation| annotation.contents.as_deref() == Some("Native sticky note")));
+}
+
+#[cfg(feature = "html-review")]
+#[test]
+fn native_html_save_validation_rejects_changed_source_and_raw_pdf() {
+    let source = "<p>Original</p>";
+    let pdf = fixture(1);
+    let package = pdfcraft_html_review::native::save_native(source, &pdf, serde_json::json!([])).expect("package");
+    let mut session = Session::new();
+    let id = session.open("document.html", None, Arc::new(package), None).expect("open");
+    assert!(session.check_save(id, &Arc::new(pdf.clone())).is_err());
+    let changed = pdfcraft_html_review::native::save_native("<p>Changed</p>", &pdf, serde_json::json!([])).expect("changed package");
+    assert!(session.check_save(id, &Arc::new(changed)).is_err());
+    assert!(session.get(id).expect("document").is_html());
+    let raw = session.open("misnamed.html", None, Arc::new(pdf), None).expect("PDF magic takes precedence");
+    assert!(!session.get(raw).expect("document").is_html());
+}
+
+#[cfg(feature = "html-review")]
+#[test]
+fn native_html_confidentiality_operations_require_pdf_export() {
+    let source = "<p>Original secret remains in HTML source.</p>";
+    let package = pdfcraft_html_review::native::save_native(source, &fixture(1), serde_json::json!([])).expect("package");
+    let mut session = Session::new();
+    let id = session.open("secret.html", None, Arc::new(package), None).expect("open");
+    for edit in [
+        Edit::Protect(Protection::default()),
+        Edit::ApplyRedactions { pages: None },
+        Edit::RemoveHidden { which: vec![] },
+        Edit::Sanitize,
+        Edit::Batch { label: "nested private edit".into(), edits: vec![Edit::Batch { label: "nested".into(), edits: vec![Edit::Sanitize] }] },
+    ] {
+        let error = session.apply(id, edit).expect_err("HTML confidentiality gate").to_string();
+        assert!(error.contains("Export a PDF first"));
+        assert!(!session.get(id).expect("document").dirty);
+        assert!(session.get(id).expect("document").can_undo().is_none());
+    }
+    for command in ["protect.password", "redact.apply", "protect.remove_hidden", "redact.sanitize"] {
+        assert!(!commands::is_enabled(commands::command(command).expect("command"), &session, Some(id)));
+    }
+    let pdf = session.save_pdf_bytes(id).expect("explicit export");
+    let pdf_id = session.open("exported.pdf", None, pdf, None).expect("PDF export");
+    session.apply(pdf_id, Edit::Sanitize).expect("ordinary PDF can sanitize");
+    assert!(!session.get(pdf_id).expect("document").is_html());
+    let saved = session.save_bytes(id).expect("original HTML intact");
+    assert_eq!(pdfcraft_html_review::native::unpack_native(&saved).expect("package").0, source);
+}
+
+#[cfg(feature = "html-review")]
+#[test]
+fn native_html_imports_supply_pdf_layers_to_pdf_workflows() {
+    let original = fixture(2);
+    let package = Arc::new(pdfcraft_html_review::native::save_native("<p>Source</p>", &original, serde_json::json!([])).expect("package"));
+    let session = Session::new();
+    assert_eq!(session.as_pdf("lesson.html", &package).expect("combine source").as_slice(), original.as_slice());
+    let (kind, pdf) = session.convert_to_pdf("lesson.html", &package).expect("explicit PDF conversion");
+    assert_eq!(kind, SourceKind::Pdf);
+    assert_eq!(pdf.as_slice(), original.as_slice());
+}
+
+#[cfg(feature = "html-review")]
+#[test]
+fn native_html_digital_signing_requires_pdf_export_and_scopes_verdicts() {
+    let p12 = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../sign/tests/data/ec-p256.p12")).expect("test identity");
+    let digital_id = sign::pkcs12::open(&p12, "test").expect("test identity");
+    let mut session = Session::new().with_clock(|| 1_800_000_000);
+    let original = fixture(1);
+    let package = pdfcraft_html_review::native::save_native("<p>Unsigned original source</p>", &original, serde_json::json!([])).expect("package");
+    let html = session.open("lesson.html", None, Arc::new(package), None).expect("HTML");
+    assert!(session.sign(html, &digital_id, SignOptions::default()).expect_err("HTML signing blocked").to_string().contains("Export a PDF first"));
+    for command in ["sign.digital", "sign.certify", "sign.certify_invisible", "sign.validate", "form.add.signature"] {
+        assert!(!commands::is_enabled(commands::command(command).expect("command"), &session, Some(html)));
+    }
+    assert!(commands::is_enabled(commands::command("sign.fill.signature").expect("command"), &session, Some(html)));
+    let raw = session.open("exported.pdf", None, session.save_pdf_bytes(html).expect("PDF export"), None).expect("PDF");
+    let signed = session.sign(raw, &digital_id, SignOptions::default()).expect("ordinary PDF signing");
+    session.mark_signed(raw, signed.clone(), None).expect("signed PDF");
+    session.set_trusted_certificates(vec![digital_id.certificate.clone()]);
+    assert_eq!(session.get(raw).expect("PDF").signatures[0].status, SignatureStatus::Valid);
+    let wrapped =
+        pdfcraft_html_review::native::save_native("<p>Unsigned original source</p>", &signed, serde_json::json!([])).expect("signed layer package");
+    let html = session.open("signed-layer.html", None, Arc::new(wrapped), None).expect("signed layer");
+    assert_eq!(session.get(html).expect("HTML").signatures[0].status, SignatureStatus::Unknown);
+    session.set_trusted_certificates(vec![digital_id.certificate.clone()]);
+    let signature = &session.get(html).expect("HTML").signatures[0];
+    assert_eq!(signature.status, SignatureStatus::Unknown);
+    assert!(signature.details.iter().any(|detail| detail.message.contains("HTML source is not authenticated")));
+}
+
 #[test]
 fn prepared_open_does_not_mutate_the_session_until_commit() {
     fn assert_send<T: Send>() {}

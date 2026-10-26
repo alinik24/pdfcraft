@@ -6,6 +6,11 @@ edition.workspace = true
 license.workspace = true
 rust-version = "1.95"
 
+[features]
+default = []
+# HTML uses the existing document tabs, tools and save pipeline.
+html-review = ["pdfcraft-engine/html-review"]
+
 [lints]
 workspace = true
 
@@ -79,6 +84,7 @@ js-sys = "0.3"
 web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlElement", "HtmlAnchorElement", "Blob", "BlobPropertyBag", "Url", "HtmlIFrameElement", "HtmlImageElement", "HtmlCollection", "Node", "EventTarget", "Navigator"] }
 
 [dev-dependencies]
+pdfcraft-html-review = { path = "../html-review" }
 pdfcraft-xfa = { workspace = true }
 egui_kittest = { workspace = true, features = ["eframe", "wgpu"] }
 image = { version = "0.25", default-features = false, features = ["png"] }

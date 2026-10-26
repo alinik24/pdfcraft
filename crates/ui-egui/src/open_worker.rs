@@ -161,7 +161,7 @@ fn run(queue: Arc<(Mutex<Queue>, Condvar)>) {
 
 fn prepare(job: Job) -> ResultKind {
     let bytes = match &job.input {
-        Input::Path(path) => match std::fs::read(path) {
+        Input::Path(path) => match pdfcraft_engine::read_document_path(path) {
             Ok(bytes) => Arc::new(bytes),
             Err(error) => return ResultKind::ReadFailed(error.to_string()),
         },

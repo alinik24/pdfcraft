@@ -121,6 +121,22 @@ pub fn tools() -> Vec<ToolDef> {
     let save_out = json!({ "type": "string", "description": "File to write. Omit to open the result as a new unsaved document instead." });
     let open = json!({ "type": "boolean", "description": "Also open the result as a new document (default: only when out is omitted)." });
     vec![
+        #[cfg(feature = "html-review")]
+        t("html_review_inspect", "Inspect HTML review", "Inspect a local HTML review or native page-layer container, including structured annotations. Plain source is limited to 16 MiB, validated native containers to 128 MiB. Does not execute document scripts.")
+            .ro()
+            .with(schema(json!({"path": path_arg()}), &["path"])),
+        #[cfg(feature = "html-review")]
+        t("html_review_export", "Export HTML review", "Export local HTML review JSON, including native page annotations, atomically to out. Refuses to overwrite source. Plain source limit 16 MiB, validated native container limit 128 MiB. Honors filesystem roots.")
+            .destructive()
+            .with(schema(json!({"path": path_arg(), "out": path_arg()}), &["path", "out"])),
+        #[cfg(feature = "html-review")]
+        t("html_review_merge", "Merge HTML review", "Experimental: merge source-review JSON into plain HTML, checking document identity and anchors. Atomically write a new HTML copy; refuse to overwrite either input. Native page-layer containers are refused: use doc_open, standard annotation tools and doc_save. Plain HTML limit 16 MiB; JSON 4 MiB. Honors filesystem roots; no script execution or network.")
+            .destructive()
+            .with(schema(json!({"path": path_arg(), "review": path_arg(), "out": path_arg()}), &["path", "review", "out"])),
+        #[cfg(feature = "html-review")]
+        t("html_review_edit", "Edit HTML target", "Experimental: replace one target's inner HTML in plain source while preserving other content and conservatively reanchoring annotations. Atomically write a copy; refuse source overwrite. Native page-layer containers are refused: use doc_open, standard editing tools and doc_save. Source limit 16 MiB; replacement 60 KiB UTF-8. Honors filesystem roots; no script execution or network.")
+            .destructive()
+            .with(schema(json!({"path": path_arg(), "target_id": {"type": "string"}, "html": {"type": "string", "maxLength": 61440}, "out": path_arg()}), &["path", "target_id", "html", "out"])),
         t("doc_batch", "Process files and folders", "Run convert, ocr and/or optimize over files and folders, one file at a time. recursive defaults to false. Preserve paths relative to each selected folder inside out_dir; duplicate inputs run once. Skip unsupported files, links and the output subtree. Existing outputs receive numbered names and are never replaced. Continue after per-file errors unless stop_on_error is true. Return completed/failed/skipped counts and per-file results. Discovery is bounded to 10000 entries and 64 folder levels. Convert must be first; each step can appear once. OCR uses installed models. Optimize uses Reduce File Size settings, optionally overriding target ppi (threshold 1.5 times ppi) and JPEG quality; a larger candidate keeps the original bytes. Sources and open documents are unchanged.")
             .with(schema(json!({
                 "paths": {"type":"array","items":{"type":"string"},"minItems":1,"maxItems":1000},
@@ -138,9 +154,13 @@ pub fn tools() -> Vec<ToolDef> {
         t("attachment_delete", "Delete an attachment", "Remove the document-level attachment with this name (as doc_info lists it). Undoable.")
             .destructive()
             .with(schema(json!({"doc": doc(), "name": {"type": "string"}}), &["doc", "name"])),
-        t("doc_open", "Open a PDF", "Open a PDF file and return its document id, page count and whether it can be edited.")
+        t("doc_open", "Open a document", "Open a PDF, or HTML with the html-review build feature, and return its id, format, page count and whether it can be edited. HTML uses a native paged edit layer; doc_save retains the HTML container.")
             .cmd("file.open")
             .with(schema(json!({ "path": { "type": "string" }, "password": { "type": "string", "description": "User or owner password for encrypted files." } }), &["path"])),
+        #[cfg(feature = "html-review")]
+        t("doc_export_pdf", "Export a PDF copy", "Export the current editable page revision as a PDF copy without changing the source HTML/PDF document or its unsaved state. HTML source and its native carrier are not included. Refuses to replace the source document; honors read/write roots.")
+            .destructive()
+            .with(schema(json!({"doc":doc(),"out":path_arg()}), &["doc","out"])),
         t("doc_list", "List open documents", "List the open documents with their ids, page counts and unsaved state.").ro().with(schema(json!({}), &[])),
         t("doc_info", "Inspect a document", "Metadata, page sizes and labels, bookmarks, annotations, form fields, links, layers, page transitions and display times, the destination it opens at, attachments, fonts, security and repair notes.")
             .ro()
@@ -1474,4 +1494,17 @@ pub(crate) fn check_args(def: &ToolDef, args: &Value) -> Result<(), ToolError> {
         }
     }
     Ok(())
+}
+
+#[cfg(all(test, not(feature = "html-review")))]
+mod html_review_gate_tests {
+    #[test]
+    fn html_review_tools_are_absent_by_default() {
+        assert!(!super::tools().iter().any(|tool| tool.name.starts_with("html_review_")));
+        let mut automation = crate::Automation::new();
+        assert!(matches!(
+            automation.call("html_review_inspect", &serde_json::json!({"path": "irrelevant.html"})),
+            Err(crate::ToolError::UnknownTool(_))
+        ));
+    }
 }

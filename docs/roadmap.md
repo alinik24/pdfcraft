@@ -1,5 +1,7 @@
 # PdfCraft roadmap: milestones and what's next
 
+> 2026-10-25: HTML integrated with existing native tabs, commands, comments, undo and HTML save/recovery through an embedded page layer; desktop feature enabled in normal builds. Validation in progress; PDF estimates unchanged. See [HTML review](html-review.md).
+
 > **Last reviewed:** 2026-10-23 | **Last updated:** 2026-10-23 | **Change:** minor (M8, #3205 follow-up: labelled Italian international phone numbers with a slash match whole; estimates unchanged)
 > **Last reviewed:** 2026-10-23 · **Last updated:** 2026-10-23 · **Change:** minor (M7, #2636 partial: pasting added text boxes and images in the engine and through `content_copy`; estimates unchanged)
 > **Last reviewed:** 2026-10-23 · **Last updated:** 2026-10-23 · **Change:** minor (M11: image optimization accounts for page-local UserUnit; estimates unchanged)

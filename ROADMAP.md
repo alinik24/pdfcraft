@@ -1,5 +1,7 @@
 # PdfCraft roadmap
 
+> 2026-10-25: HTML now uses the existing native tabs, tools, edit history and HTML save/recovery with an embedded page layer. Desktop feature enabled in normal builds; validation in progress. Paged edits preserve original HTML source; confidentiality operations require PDF export. PDF parity estimates unchanged. See `docs/html-review.md`.
+
 **Stage: alpha** · next: beta, ~25% (ready for real work 50% → 75%) and ~400–700 h away
 
 > **Last reviewed:** 2026-10-23 | **Last updated:** 2026-10-23 | **Change:** minor (M8, #3205 follow-up: labelled Italian international phone numbers with a slash match whole; estimates unchanged)

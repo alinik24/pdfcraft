@@ -1,3 +1,4 @@
+> **HTML annotation feature branch:** Open `.html`, `.htm` and `.xhtml` in the existing PdfCraft editor, highlight text, add comments and save the review layer inside the HTML file. See [HTML editing and annotation](docs/html-review.md) and [installation instructions](docs/html-installation.md). This contribution is based on [storytold/pdfcraft](https://github.com/storytold/pdfcraft); the HTML layer uses fixed PDF pages and preserves the original HTML source. Security and digital signing require a PDF export.
 <p align="center">
   <a href="https://getartcraft.com/">
     <picture>

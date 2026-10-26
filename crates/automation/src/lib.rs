@@ -21,6 +21,8 @@ mod content;
 mod conventions;
 pub mod file_access;
 mod forms;
+#[cfg(feature = "html-review")]
+mod html_review;
 mod layers;
 mod links;
 #[cfg(feature = "mcp")]
@@ -211,6 +213,16 @@ impl Automation {
         tools::check_args(def, args)?;
         let a = Args(args);
         let out = match name {
+            #[cfg(feature = "html-review")]
+            "doc_export_pdf" => self.doc_export_pdf(&a)?,
+            #[cfg(feature = "html-review")]
+            "html_review_inspect" => self.html_review_inspect(&a)?,
+            #[cfg(feature = "html-review")]
+            "html_review_export" => self.html_review_export(&a)?,
+            #[cfg(feature = "html-review")]
+            "html_review_merge" => self.html_review_merge(&a)?,
+            #[cfg(feature = "html-review")]
+            "html_review_edit" => self.html_review_edit(&a)?,
             "doc_open" => self.doc_open(&a)?,
             "doc_batch" => self.doc_batch(&a)?,
             "doc_list" => json!({ "documents": self.session.docs().iter().map(summary).collect::<Vec<_>>() }),
@@ -2607,6 +2619,7 @@ fn summary(d: &Document) -> Value {
         "doc": d.id.0,
         "name": d.name,
         "path": d.path,
+        "format": if d.is_html() { "html" } else { "pdf" },
         "pages": d.info.pages.len(),
         "dirty": d.dirty,
         "editable": d.read_only_reason.is_none(),

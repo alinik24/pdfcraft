@@ -2139,7 +2139,7 @@ impl PdfCraftApp {
         // deterministic inline startup and test flows. Once live, reading and preparation use
         // the bounded worker and commit on the UI thread.
         if self.ctx.is_none() || self.run_inline {
-            match std::fs::read(path) {
+            match pdfcraft_engine::read_document_path(path) {
                 Ok(bytes) => {
                     let before = self.views.len();
                     if let Err(error) = self.open_bytes(&name, Some(path.to_string()), bytes) {
@@ -2190,32 +2190,29 @@ impl PdfCraftApp {
         }
     }
 
-    /// The File ▸ Open picker: PDFs, and images and text that become PDFs.
-    #[cfg(not(target_arch = "wasm32"))]
+    /// The File ▸ Open picker: native documents, and images/text converted to PDF.
     fn open_picker() -> rfd::AsyncFileDialog {
-        rfd::AsyncFileDialog::new().add_filter("PDF", &["pdf"]).add_filter(tl!("Images and text (converted to PDF)"), &create_ui::CONVERTIBLE)
+        #[cfg(feature = "html-review")]
+        let picker = rfd::AsyncFileDialog::new().add_filter("PDF / HTML", &["pdf", "html", "htm", "xhtml"]);
+        #[cfg(not(feature = "html-review"))]
+        let picker = rfd::AsyncFileDialog::new();
+        let picker = picker.add_filter("PDF", &["pdf"]);
+        #[cfg(feature = "html-review")]
+        let picker = picker.add_filter("HTML", &["html", "htm", "xhtml"]);
+        picker.add_filter(tl!("Images and text (converted to PDF)"), &create_ui::CONVERTIBLE)
     }
 
     pub fn open_dialog(&mut self) {
         self.startup_superseded = true;
         #[cfg(not(target_arch = "wasm32"))]
-        self.pick(
-            pickers::PickFor::Open,
-            rfd::AsyncFileDialog::new().add_filter("PDF", &["pdf"]).add_filter(tl!("Images and text (converted to PDF)"), &create_ui::CONVERTIBLE),
-            true,
-        );
+        self.pick(pickers::PickFor::Open, Self::open_picker(), true);
         // Browsers pick files asynchronously; the bytes arrive through `inbox`.
         #[cfg(target_arch = "wasm32")]
         {
             let inbox = self.inbox.clone();
             let ctx = self.ctx.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                if let Some(h) = rfd::AsyncFileDialog::new()
-                    .add_filter("PDF", &["pdf"])
-                    .add_filter(tl!("Images and text"), &create_ui::CONVERTIBLE)
-                    .pick_file()
-                    .await
-                {
+                if let Some(h) = Self::open_picker().pick_file().await {
                     let bytes = h.read().await;
                     if let Ok(mut q) = inbox.lock() {
                         q.push((h.file_name(), bytes));

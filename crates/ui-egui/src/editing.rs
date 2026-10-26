@@ -38,6 +38,18 @@ pub enum SaveTarget {
     As,
 }
 
+/// Keep the source format when Save As supplies its suggested name.
+fn save_document_name(name: &str, html: bool) -> String {
+    let lower = name.to_ascii_lowercase();
+    if html {
+        if lower.ends_with(".html") || lower.ends_with(".htm") || lower.ends_with(".xhtml") { name.to_owned() } else { format!("{name}.html") }
+    } else if lower.ends_with(".pdf") {
+        name.to_owned()
+    } else {
+        format!("{name}.pdf")
+    }
+}
+
 /// Text typed into a new text box that isn't added to the page yet.
 fn new_text_typed(v: &crate::DocView) -> bool {
     v.content.draft.as_ref().is_some_and(|d| d.index.is_none() && !d.text.trim().is_empty())
@@ -672,6 +684,7 @@ impl PdfCraftApp {
         let Some(id) = self.views.get(index).map(|v| v.id) else { return false };
         let Some(doc) = self.session.get(id) else { return false };
         let (name, path) = (doc.name.clone(), doc.path.clone());
+        let html = doc.is_html();
         #[cfg(not(target_arch = "wasm32"))]
         {
             let doc_path = path.clone();
@@ -681,8 +694,13 @@ impl PdfCraftApp {
                 // document (`is_mail_temp_copy`).
                 (SaveTarget::InPlace, Some(p), _) if !is_mail_temp_copy(&p) => p,
                 _ => {
-                    let name = if name.to_ascii_lowercase().ends_with(".pdf") { name } else { format!("{name}.pdf") };
-                    let dialog = rfd::AsyncFileDialog::new().add_filter("PDF", &["pdf"]).set_file_name(name);
+                    let name = save_document_name(&name, html);
+                    let dialog = if html {
+                        rfd::AsyncFileDialog::new().add_filter("HTML", &["html", "htm", "xhtml"])
+                    } else {
+                        rfd::AsyncFileDialog::new().add_filter("PDF", &["pdf"])
+                    };
+                    let dialog = dialog.set_file_name(name);
                     let dialog = in_document_folder(dialog, doc_path.as_deref());
                     // The bytes are taken once the user has chosen, so edits made meanwhile are saved too.
                     self.ask_one(crate::pickers::Ask::Save(dialog), None, move |app, dest| {
@@ -695,6 +713,7 @@ impl PdfCraftApp {
         }
         #[cfg(target_arch = "wasm32")]
         {
+            let name = save_document_name(&name, html);
             let _ = path;
             if !self.flatten_fill_sign_for_save(id) {
                 return false;
@@ -1242,6 +1261,77 @@ fn bookmark_at<'a>(items: &'a [pdfcraft_render::OutlineItem], path: &[usize]) ->
 #[cfg(test)]
 mod tests {
     use super::{SaveTarget, is_mail_temp_copy, save_dialog_folder, write_atomically, write_atomically_syncing, write_atomically_with};
+
+    #[test]
+    fn save_document_names_keep_native_format() {
+        assert_eq!(super::save_document_name("review.HTM", true), "review.HTM");
+        assert_eq!(super::save_document_name("review.html", true), "review.html");
+        assert_eq!(super::save_document_name("review.xhtml", true), "review.xhtml");
+        assert_eq!(super::save_document_name("review", true), "review.html");
+        assert_eq!(super::save_document_name("review.PDF", false), "review.PDF");
+        assert_eq!(super::save_document_name("review", false), "review.pdf");
+    }
+
+    #[cfg(feature = "html-review")]
+    #[test]
+    fn native_html_uses_existing_tabs_comments_undo_and_save() {
+        use pdfcraft_engine::{Edit, NewAnnotation, NoteIcon, Shape, Style};
+        let dir = staging_dir("native-html-tab");
+        let source = "<!doctype html><html><body><p>Original HTML kept intact</p></body></html>";
+        let bytes = pdfcraft_html_review::native::save_native(source, &one_page_pdf(), serde_json::json!([])).unwrap();
+        let input = dir.join("review.html");
+        let output = dir.join("reviewed.html");
+        std::fs::write(&input, &bytes).unwrap();
+        let mut app = crate::PdfCraftApp::new();
+        app.open_bytes("other.pdf", None, one_page_pdf()).unwrap();
+        app.open_bytes("review.html", Some(input.to_string_lossy().into_owned()), bytes.clone()).unwrap();
+        assert_eq!(app.views.len(), 2);
+        let (index, id) = app.active_ids().unwrap();
+        assert_eq!(index, 1);
+        let doc = app.session.get(id).unwrap();
+        assert!(doc.is_html());
+        assert_eq!(doc.name, "review.html");
+        assert_eq!(doc.path.as_deref(), Some(input.to_string_lossy().as_ref()));
+        assert!(app.execute("comment.note"));
+        assert_eq!(app.quick_tool, crate::QuickTool::Comment(crate::comments::CommentTool::Note));
+        assert!(app.apply_edit(Edit::AddAnnotation(NewAnnotation {
+            page: 0,
+            shape: Shape::Note { at: [20.0, 20.0], icon: NoteIcon::Note },
+            style: Style::default(),
+            contents: "Native HTML review comment".into(),
+            author: "Synthetic reviewer".into(),
+        })));
+        assert!(app.session.get(id).unwrap().dirty);
+        assert_eq!(app.session.get(id).unwrap().info.annotations.len(), 1);
+        app.undo();
+        assert_eq!(app.session.get(id).unwrap().info.annotations.len(), 0);
+        app.redo();
+        assert_eq!(app.session.get(id).unwrap().info.annotations.len(), 1);
+        let snapshots = app.session.autosave_snapshots();
+        let snapshot = snapshots.iter().find(|snapshot| snapshot.doc == id).unwrap();
+        assert_eq!(snapshot.name, "review.html");
+        let mut recovered = crate::PdfCraftApp::new();
+        recovered.open_bytes(&snapshot.name, None, snapshot.bytes.as_ref().clone()).unwrap();
+        let (_, recovered_id) = recovered.active_ids().unwrap();
+        assert!(recovered.session.get(recovered_id).unwrap().is_html());
+        assert_eq!(recovered.session.get(recovered_id).unwrap().info.annotations.len(), 1);
+        assert_eq!(std::fs::read(&input).unwrap(), bytes);
+        app.save_override = Some(output.to_string_lossy().into_owned());
+        assert!(app.save_active(SaveTarget::As));
+        assert!(!app.session.get(id).unwrap().dirty);
+        let saved = std::fs::read(&output).unwrap();
+        assert!(std::str::from_utf8(&saved).unwrap().contains("Original HTML kept intact"));
+        assert_eq!(std::fs::read(&input).unwrap(), bytes);
+        let mut reopened = crate::PdfCraftApp::new();
+        reopened.open_bytes("reviewed.html", Some(output.to_string_lossy().into_owned()), saved).unwrap();
+        let (_, reopened_id) = reopened.active_ids().unwrap();
+        let doc = reopened.session.get(reopened_id).unwrap();
+        assert!(doc.is_html());
+        assert_eq!(doc.info.annotations.len(), 1);
+        assert_eq!(doc.info.annotations[0].contents.as_deref(), Some("Native HTML review comment"));
+        assert_eq!(reopened.views.len(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn save_dialogs_open_in_the_documents_folder() {

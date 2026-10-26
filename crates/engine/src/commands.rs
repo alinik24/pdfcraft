@@ -397,6 +397,22 @@ pub fn menu(menu: &str) -> impl Iterator<Item = &'static CommandSpec> + '_ {
 /// Whether `spec` can run now, for the document `active` (the focused tab).
 pub fn is_enabled(spec: &CommandSpec, session: &Session, active: Option<DocId>) -> bool {
     let doc = active.and_then(|id| session.get(id));
+    if doc.is_some_and(|document| document.is_html())
+        && matches!(
+            spec.id,
+            "protect.password"
+                | "redact.apply"
+                | "protect.remove_hidden"
+                | "redact.sanitize"
+                | "sign.digital"
+                | "sign.certify"
+                | "sign.certify_invisible"
+                | "sign.validate"
+                | "form.add.signature"
+        )
+    {
+        return false;
+    }
     match spec.needs {
         Nothing => true,
         Document | TwoPageView => doc.is_some(),

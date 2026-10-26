@@ -14,6 +14,18 @@ areas = { A = "core", B = "view", C = "edit", D = "organize", E = "comment", F =
 # ==================================================================================================
 
 [[feature]]
+id = "core.html-review"
+title = "HTML documents in the native paged editor with portable review layers"
+area = "A"
+tier = "P2"
+milestone = "M14"
+status = "partial"
+commands = []
+tools = ["doc_export_pdf", "html_review_inspect", "html_review_export", "html_review_merge", "html_review_edit"]
+evidence = ["crates/engine/src/tests.rs::native_html_uses_existing_edit_history_save_and_recovery", "crates/ui-egui/src/editing.rs::native_html_uses_existing_tabs_comments_undo_and_save"]
+notes = "HTML uses existing native tabs/tools/comments/history via fixed pages and a portable edit layer embedded in saved HTML, with original source retained. Desktop html-review feature enabled in normal builds. Static rendering requires installed Edge/Chromium; source edits are page-layer edits, not DOM reflow. Confidentiality operations require PDF export. Native inspect/export supported; DOM merge/edit refuse native containers. Validation in progress; see docs/html-review.md."
+
+[[feature]]
 id = "core.word-count"
 title = "Word and character count"
 area = "A"

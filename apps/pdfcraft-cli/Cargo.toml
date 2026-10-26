@@ -37,6 +37,7 @@ rustix = { version = "1", features = ["process"] }
 winresource = "0.1"
 
 [features]
+html-review = ["pdfcraft-automation/html-review"]
 default = ["mcp"]
 # The opt-in MCP server (`pdfcraft-cli mcp`). Build with --no-default-features to leave it out.
 mcp = ["pdfcraft-automation/mcp"]

@@ -43,6 +43,32 @@ understood.
 
 ## API
 
+With the optional `html-review` feature, the same `Session::open` path admits
+HTML documents into the existing native page view. Their original source stays
+unchanged; ordinary editing, comments, page operations, undo and redo operate on
+an embedded PDF layer. This is a fixed paged editing layer, not responsive DOM
+editing. `Document::is_html()` identifies these documents. `save_bytes`,
+`save_full_bytes`, `check_save`, `mark_saved`, and crash recovery retain the HTML
+container and complete layer. Candidate validation decodes the existing layer
+without launching a browser. Initial HTML rendering uses the native adapter;
+reopening a saved layer requires no rendering service.
+
+`save_pdf_bytes` and `save_full_pdf_bytes` explicitly export the native PDF layer;
+PDF-only transformations use these rather than format-aware container saves.
+`as_pdf` and `convert_to_pdf` supply HTML layers to combine/import workflows.
+Since the original HTML source remains readable, applying redactions,
+sanitizing, removing hidden information, and password protection are refused for
+the HTML container, including within batch edits. Export a PDF first for those
+whole-file operations. The corresponding confidentiality commands are disabled
+for HTML tabs. Ordinary PDF behavior is unchanged.
+Digital signing, certification, timestamps and signature validation likewise
+require PDF export: a signature on the PDF layer does not authenticate the
+retained HTML source. Existing layer signatures are shown with unknown whole-file
+validity and an explicit scope explanation, even when their PDF signer is
+trusted. Invalid layer signatures remain invalid. Handwritten Fill & Sign marks
+remain ordinary editable layer content. Optimization/reduction methods produce
+explicit PDF outputs rather than HTML container saves.
+
 ```rust
 let mut s = Session::new();
 let id = s.open("report.pdf", Some(path), bytes, None)?;   // -> DocId

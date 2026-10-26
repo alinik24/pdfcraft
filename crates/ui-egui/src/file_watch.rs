@@ -3,8 +3,10 @@
 //!
 //! Cheap by design. One worker thread looks at each open file's metadata (no reading) every
 //! [`IDLE`], and blocks without waking at all while no open document has a file. A changed file
-//! is read only once it has stopped changing ([`SETTLE`] apart) and ends like a whole PDF: its
-//! last KiB is read first, so a file still being written costs one small read. The new bytes go
+//! is read only once it has stopped changing ([`SETTLE`] apart). PDFs must end like a whole PDF:
+//! the last KiB is read first, so a file still being written costs one small read. With HTML
+//! support enabled, HTML files use the stable version checks and engine validation because
+//! HTML has no mandatory end marker. The new bytes go
 //! to the UI thread, which is woken for them: a clean document is reloaded in place, keeping its
 //! tab, page, zoom and scroll; one with unsaved changes gets a notice instead. PdfCraft's own
 //! saves are recognised by the file's stamp after writing, so they never reload.
@@ -199,8 +201,8 @@ enum Version {
     Busy,
 }
 
-/// Read `path` if it is still the version `stamp` and ends like a whole PDF (`%%EOF` in its last
-/// KiB, read first). The whole file is then read into a buffer of exactly its size.
+/// Read `path` if it is still the version `stamp`. PDFs require `%%EOF` in their last KiB;
+/// feature-enabled HTML uses stability alone, then engine validation on reload.
 fn read_whole_pdf(path: &str, stamp: Stamp) -> Version {
     // Windows refuses to open a file its writer holds exclusively: not ready yet.
     let Ok(mut file) = File::open(path) else { return Version::Busy };
@@ -215,7 +217,18 @@ fn read_whole_pdf(path: &str, stamp: Stamp) -> Version {
     if file.seek(SeekFrom::End(-back)).is_err() || file.read_exact(end).is_err() {
         return Version::Busy;
     }
-    if !end.windows(5).any(|w| w == b"%%EOF") {
+    // HTML has no mandatory closing tag or EOF marker. Stability checks still apply, and
+    // the format-aware engine validates the complete bytes before replacing a document.
+    #[cfg(feature = "html-review")]
+    let html = std::path::Path::new(path)
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm") || ext.eq_ignore_ascii_case("xhtml"));
+    #[cfg(not(feature = "html-review"))]
+    let html = false;
+    if html && (!meta.is_file() || len > 128 * 1024 * 1024) {
+        return Version::Incomplete;
+    }
+    if !html && !end.windows(5).any(|w| w == b"%%EOF") {
         return Version::Incomplete;
     }
     let mut bytes = Vec::new();
@@ -476,6 +489,19 @@ mod tests {
 
     use super::*;
     use crate::SaveTarget;
+
+    #[cfg(feature = "html-review")]
+    #[test]
+    fn native_html_file_watch_accepts_stable_html_without_pdf_eof() {
+        let (dir, _) = TempDir::new("native-html", &fixture(1));
+        let path = dir.0.join("review.HTML").to_string_lossy().into_owned();
+        let bytes = b"<!doctype html><html><body><p>Changed HTML</p></body></html>";
+        std::fs::write(&path, bytes).unwrap();
+        match read_whole_pdf(&path, Stamp::at(&path).unwrap()) {
+            Version::Ready(read) => assert_eq!(read.as_slice(), bytes),
+            _ => panic!("stable HTML must reach the format-aware document loader"),
+        }
+    }
 
     /// An `n`-page PDF with a proper xref table.
     fn fixture(n: usize) -> Vec<u8> {

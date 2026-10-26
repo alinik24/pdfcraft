@@ -80,6 +80,8 @@ pub const TABLE: &[(&str, Class)] = &[
     ("platform", Class::Layer(7)),
     ("ui-common", Class::Layer(7)),
     ("ui-egui", Class::Layer(7)),
+    // Format parsing/rendering input, below the session/engine facade.
+    ("html-review", Class::Layer(4)),
     ("automation", Class::Layer(7)),
     // test support
     ("testkit", Class::Testkit),

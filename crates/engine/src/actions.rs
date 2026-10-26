@@ -219,6 +219,6 @@ pub fn run_on(action: &Action, name: &str, bytes: Arc<Vec<u8>>, mut progress: im
     }
     let d = s.get(id).ok_or("the document was lost")?;
     // A signed file keeps its signatures: incremental. Otherwise a clean full rewrite.
-    let bytes = if d.is_signed() { s.save_bytes(id) } else { s.save_full_bytes(id) }.map_err(|e| e.to_string())?;
+    let bytes = if d.is_signed() { s.save_pdf_bytes(id) } else { s.save_full_pdf_bytes(id) }.map_err(|e| e.to_string())?;
     Ok(FileResult { name: name.to_string(), bytes, log })
 }

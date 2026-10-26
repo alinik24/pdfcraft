@@ -25,6 +25,50 @@ its undo/redo history.
 
 ## Conventions
 
+### Experimental HTML review bridge
+
+With this build feature, standard `doc_open` opens native HTML in the existing
+engine and `doc_save` writes its original HTML plus portable page/review layer.
+Document summaries identify `format` as `html` or `pdf`. `doc_export_pdf {doc,out}`
+writes a PDF-only copy, retains the source document and its dirty state, and
+refuses to overwrite that source. Use it before whole-file confidentiality or
+digital-signing workflows, which cannot authenticate/hide retained HTML source.
+
+The `html-review` Cargo feature is **off by default**. Enabling it adds four local tools to
+the same table used by CLI scripts and the explicitly launched MCP server:
+
+| Tool | Required arguments | Result |
+| --- | --- | --- |
+| `html_review_inspect` | `path` | Manifest, document identity, source hash, target and annotation counts |
+| `html_review_export` | `path`, `out` | Atomically saved review JSON |
+| `html_review_merge` | `path`, `review`, `out` | Atomically saved HTML copy with merged annotations |
+| `html_review_edit` | `path`, `target_id`, `html`, `out` | Atomically saved HTML copy with one target's inner HTML revised |
+
+Inspect/export accept generic HTML, documents carrying a PdfCraft manifest, and validated
+native HTML page-layer containers. Plain source is limited to 16 MiB, native containers to
+128 MiB, and incoming source-review JSON to 4 MiB. Target replacement HTML is capped at
+60 KiB of UTF-8; edits preserve other source content and conservatively reanchor annotations.
+Every input and output honors both
+`--root` and the separate automation read/write roots. Export and merge refuse to overwrite
+their inputs; an existing distinct output can be replaced atomically. Merge validates the
+review's document identity, source hash and anchors before publication. No browser, script
+execution, network service or Memory Lab generator write is involved.
+
+Native inspection/export exposes page annotations and their coordinate metadata separately
+from any source-review annotations. Its exported format is `pdfcraft-native-html-review/1.0`
+with `merge_supported: false`. If the source-review parser cannot anchor the original HTML,
+native annotations remain available; manifest, target count and source review are `null`,
+and identity falls back to the validated source SHA-256. Native edit/merge calls are refused
+before publication: use `doc_open`, standard comment/editing tools and `doc_save` to preserve
+the native page layer. Source edit/merge tools support plain HTML only.
+
+Acceptance: `cargo test -p pdfcraft-automation --features html-review html_review_tools -j 2`.
+Tests generate synthetic HTML in Rust and exercise the public tool dispatcher, round-trip,
+source preservation, target HTML editing, generic HTML, overwrite refusals, identity mismatch, both root modes,
+missing read/write authority and bounded input reads.
+
+### General conventions
+
 - Tool names are `snake_case` (`page_rotate`): MCP clients reject dots. `ToolDef::command` links a tool to the registry id it automates (`page.rotate`), and `command_list` reports the link.
 - Pages and positions are **1-based**. Rectangles are PDF points with the origin at the top-left of the displayed page.
 - Unknown arguments are rejected, so typos fail loudly.

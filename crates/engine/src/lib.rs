@@ -56,6 +56,29 @@ pub use pdfcraft_organize::view::{InitialView, Layout as InitialLayout, Magnific
 
 pub use pdfcraft_cos::Algorithm;
 pub use pdfcraft_create::{CONVERTIBLE, CreateError, ImageResolution, SourceKind, decode_text, source_kind};
+
+/// Read a native document. HTML containers have an explicit pre-allocation cap;
+/// existing PDF reads retain their behavior.
+pub fn read_document_path(path: impl AsRef<std::path::Path>) -> std::io::Result<Vec<u8>> {
+    let path = path.as_ref();
+    #[cfg(feature = "html-review")]
+    if pdfcraft_html_review::native::is_html_name(&path.to_string_lossy()) {
+        use std::io::Read as _;
+        let file = std::fs::File::open(path)?;
+        let metadata = file.metadata()?;
+        let limit = pdfcraft_html_review::native::MAX_PACKAGE_BYTES as u64;
+        if !metadata.is_file() || metadata.len() > limit {
+            return Err(std::io::Error::other("HTML must be a regular file of at most 128 MiB"));
+        }
+        let mut bytes = Vec::new();
+        file.take(limit + 1).read_to_end(&mut bytes)?;
+        if bytes.len() as u64 > limit {
+            return Err(std::io::Error::other("HTML exceeds 128 MiB"));
+        }
+        return Ok(bytes);
+    }
+    std::fs::read(path)
+}
 pub use pdfcraft_edit::added::{
     CHAR_SPACING_LIMIT as ADDED_CHAR_SPACING_LIMIT, paste_place as added_paste_place, paste_rect as added_paste_rect, text_rect as added_text_rect,
     text_width as added_text_width,
@@ -399,7 +422,13 @@ pub struct Document {
     pub id: DocId,
     pub name: String,
     pub path: Option<String>,
-    /// The working file: what Save writes.
+    /// Original HTML source. All ordinary tools edit its native paged PDF layer.
+    #[cfg(feature = "html-review")]
+    html_source: Option<Arc<String>>,
+    #[cfg(feature = "html-review")]
+    html_saved: Option<Arc<Vec<u8>>>,
+    /// The working PDF. HTML documents retain this as a native editing layer
+    /// inside their original source container when saved.
     pub bytes: Arc<Vec<u8>>,
     /// What is displayed (the page view, `page_render`, page images): `bytes`, plus appearances
     /// drawn for display only for comments that have none ([`display_bytes`]). Never saved.
@@ -444,6 +473,60 @@ pub struct Document {
     /// What the last successful [`Session::apply`] wrote that its fonts can't draw: kept as typed,
     /// drawn with `?` in its place (see [`TextNotice`]). The interface shows it; tools return it.
     pub edit_notices: Vec<TextNotice>,
+}
+
+#[cfg(feature = "html-review")]
+fn native_html_input(name: &str, path: Option<&str>, bytes: &[u8]) -> bool {
+    // A PDF remains a PDF even when a file picker supplies an HTML suffix.
+    !bytes.starts_with(b"%PDF-")
+        && (pdfcraft_html_review::native::is_html_name(name)
+            || path.is_some_and(pdfcraft_html_review::native::is_html_name)
+            || pdfcraft_html_review::native::has_layer(bytes))
+}
+
+#[cfg(feature = "html-review")]
+fn native_saved_bytes(doc: &Document, pdf: Arc<Vec<u8>>) -> Result<Arc<Vec<u8>>, EditError> {
+    let Some(source) = &doc.html_source else {
+        return Ok(pdf);
+    };
+    let annotations: Vec<serde_json::Value> = doc
+        .info
+        .annotations
+        .iter()
+        .map(|annotation| {
+            serde_json::json!({
+                "page":annotation.page, "index":annotation.index, "subtype":annotation.subtype,
+                "id":annotation.name, "reply_to":annotation.in_reply_to, "body":annotation.contents,
+                "author":annotation.author, "modified":annotation.modified, "rect":annotation.rect,
+                "color":annotation.color, "state":annotation.state, "quads":annotation.quads,
+                "locked":annotation.locked, "intent":annotation.intent, "fill_sign":annotation.fill_sign,
+                "no_rotate":annotation.no_rotate, "points":annotation.points
+            })
+        })
+        .collect();
+    pdfcraft_html_review::native::save_native(
+        source,
+        &pdf,
+        serde_json::json!({
+            "format":"pdfcraft-native-annotations/1.0", "coordinate_space":"PDF user space",
+            "page_index_base":0, "annotations":annotations
+        }),
+    )
+    .map(Arc::new)
+    .map_err(EditError::Write)
+}
+
+#[cfg(feature = "html-review")]
+fn native_pdf_candidate(doc: &Document, bytes: &Arc<Vec<u8>>) -> Result<Arc<Vec<u8>>, EditError> {
+    let Some(expected) = &doc.html_source else {
+        return Ok(bytes.clone());
+    };
+    // Validation never invokes a renderer or accesses resources from the source.
+    let (source, pdf) = pdfcraft_html_review::native::unpack_native(bytes).map_err(EditError::Reopen)?;
+    if source.as_str() != expected.as_str() {
+        return Err(EditError::Reopen("HTML source changed in the save candidate".into()));
+    }
+    Ok(Arc::new(pdf))
 }
 
 /// Text an edit stored as typed but drew with `?` in place of `ch`, because the font it is drawn
@@ -519,6 +602,18 @@ fn undrawn_notices(prev: &pdfcraft_cos::Document, next: &pdfcraft_cos::Document)
 }
 
 impl Document {
+    /// Whether Save retains HTML source with an embedded native editing layer.
+    pub fn is_html(&self) -> bool {
+        #[cfg(feature = "html-review")]
+        {
+            self.html_source.is_some()
+        }
+        #[cfg(not(feature = "html-review"))]
+        {
+            false
+        }
+    }
+
     /// How the document opens (Document Properties ▸ Initial View).
     /// Accessibility ▸ Check for accessibility: the full check (`None` if the document can't be
     /// read for editing).
@@ -915,6 +1010,8 @@ impl Document {
             .and_then(|e| pdfcraft_organize::info(&e.cos, "Title"))
             .map(|t| t.trim().to_owned())
             .filter(|t| !t.is_empty() && !is_placeholder_title(t))
+            // The HTML renderer's temporary input name is not the user's document identity.
+            .filter(|t| !self.is_html() || t != "document.html")
             .unwrap_or_else(|| self.name.clone())
     }
 
@@ -924,9 +1021,14 @@ impl Document {
         self.editor.as_ref().map(|e| e.cos.revision_ends()).unwrap_or_default()
     }
 
-    /// The file as last opened or saved, without unsaved edits: what an incremental save appends
-    /// to. This stays that file when undo has restored an older snapshot.
+    /// The source container as last opened or saved, without unsaved edits.
+    /// For PDFs this is what incremental save appends to. This stays that file
+    /// when undo has restored an older snapshot.
     pub fn saved_bytes(&self) -> Arc<Vec<u8>> {
+        #[cfg(feature = "html-review")]
+        if let Some(saved) = &self.html_saved {
+            return saved.clone();
+        }
         self.editor.as_ref().map_or_else(|| self.bytes.clone(), |e| e.saved.clone())
     }
 
@@ -2449,6 +2551,50 @@ fn check_permission(edit: &Edit, p: &pdfcraft_cos::Permissions) -> Result<(), Ed
     }
 }
 
+/// HTML source is retained outside its PDF layer. Whole-file confidentiality
+/// operations must not report success after changing only that layer.
+fn check_html_layer_edit(edit: &Edit) -> Result<(), EditError> {
+    let mut pending = vec![edit];
+    let mut inspected = 0usize;
+    while let Some(edit) = pending.pop() {
+        inspected = inspected.saturating_add(1);
+        if inspected > 10_000 {
+            return Err(EditError::Write("HTML edit batch exceeds 10000 operations".into()));
+        }
+        match edit {
+            Edit::Protect(_)|Edit::ApplyRedactions{..}|Edit::RemoveHidden{..}|Edit::Sanitize => return Err(EditError::Write("This HTML file retains its original source outside the native PDF editing layer. Export a PDF first to apply redactions, remove hidden information, sanitize, or password-protect the whole file.".into())),
+            Edit::Batch{edits,..} => {
+                if pending.len().saturating_add(edits.len())>10_000 {return Err(EditError::Write("HTML edit batch exceeds 10000 operations".into()));}
+                pending.extend(edits);
+            }
+            _=>{}
+        }
+    }
+    Ok(())
+}
+
+fn check_html_signing(document: &Document) -> Result<(), EditError> {
+    if document.is_html() {
+        return Err(EditError::Write("Export a PDF first to digitally sign or timestamp it. A signature on the native PDF layer does not authenticate the retained HTML source.".into()));
+    }
+    Ok(())
+}
+
+#[cfg(feature = "html-review")]
+fn html_signature_claims(mut signatures: Vec<SignatureInfo>, is_html: bool) -> Vec<SignatureInfo> {
+    if is_html {
+        for signature in signatures.iter_mut().filter(|signature| signature.signed) {
+            if signature.status != SignatureStatus::Invalid {
+                signature.status = SignatureStatus::Unknown;
+            }
+            let warning = "This signature covers only the embedded PDF layer. The retained HTML source is not authenticated; export the PDF to validate its signature separately.";
+            signature.details =
+                vec![pdfcraft_sign::pdf::Detail { message: warning.into(), pattern: warning, fill: pdfcraft_sign::pdf::Fill::Nothing }];
+        }
+    }
+    signatures
+}
+
 /// Dates and unique ids stamped onto what an edit creates.
 struct EditCtx {
     /// Field scripts run (`None`: JavaScript is off) and what they produced.
@@ -3678,6 +3824,13 @@ impl Session {
         bytes: Arc<Vec<u8>>,
         password: Option<&str>,
     ) -> Result<PreparedDocument, OpenError> {
+        #[cfg(feature = "html-review")]
+        let (bytes, html_source, html_saved) = if native_html_input(&name, path.as_deref(), &bytes) {
+            let (source, pdf) = pdfcraft_html_review::native::open_native(&bytes, path.as_deref()).map_err(OpenError::Invalid)?;
+            (Arc::new(pdf), Some(Arc::new(source)), Some(bytes))
+        } else {
+            (bytes, None, None)
+        };
         let cos = std::panic::catch_unwind(|| pdfcraft_cos::Document::open_with_password(bytes.clone(), password));
         // The renderer authenticates on its own. It cannot use the owner password of R2–R4
         // files, so give it the user password that owner authentication recovers.
@@ -3834,6 +3987,14 @@ impl Session {
         // XFA notes survive the document being re-read after edits.
         let xfa_warnings: Vec<String> = if info.xfa.is_some() { info.warnings.clone() } else { Vec::new() };
         let mut document = Self::build_document(&context.trust, name, path, bytes, info, cos, render_password, password, xfa);
+        #[cfg(feature = "html-review")]
+        {
+            document.html_source = html_source;
+            document.html_saved = html_saved;
+            if document.html_source.is_some() {
+                document.signatures = Arc::new(html_signature_claims(document.signatures.as_ref().clone(), true));
+            }
+        }
         // A script that ran away on open turns the form's scripts off for this document.
         document.xfa_template = if ran_away { None } else { xfa_template };
         document.js_output.append(script_output);
@@ -3918,6 +4079,10 @@ impl Session {
             id: DocId(0),
             name,
             path,
+            #[cfg(feature = "html-review")]
+            html_source: None,
+            #[cfg(feature = "html-review")]
+            html_saved: None,
             bytes,
             display,
             info,
@@ -3955,6 +4120,9 @@ impl Session {
         let today = self.today();
         let js_off = self.js_off;
         let doc = self.doc_mut(id)?;
+        if doc.is_html() {
+            check_html_layer_edit(&edit)?;
+        }
         doc.edit_notices.clear();
         let name = doc.name.clone();
         let is_xfa = doc.info.xfa.is_some();
@@ -4267,6 +4435,8 @@ impl Session {
             check_refresh_panic();
             if !doc.signatures.is_empty() {
                 let signatures = signatures_of(&editor.cos, &bytes, &doc.trust, &doc.sig_cache);
+                #[cfg(feature = "html-review")]
+                let signatures = html_signature_claims(signatures, doc.html_source.is_some());
                 doc.signatures = Arc::new(signatures);
             }
             doc.bytes = bytes;
@@ -4312,6 +4482,8 @@ impl Session {
         doc.form = form;
         let signatures = if doc.signatures.is_empty() { Vec::new() } else { signatures_of(&editor.cos, &bytes, &doc.trust, &doc.sig_cache) };
         doc.display = display_bytes(Some(editor), &bytes);
+        #[cfg(feature = "html-review")]
+        let signatures = html_signature_claims(signatures, doc.html_source.is_some());
         doc.signatures = Arc::new(signatures);
         doc.renderer = RenderPool::new(doc.display.clone(), render_threads(), doc.config.clone());
         doc.bytes = bytes;
@@ -4369,6 +4541,8 @@ impl Session {
         doc.info.file_size = bytes.len();
         let signatures = if doc.signatures.is_empty() { Vec::new() } else { signatures_of(&editor.cos, &bytes, &doc.trust, &doc.sig_cache) };
         doc.display = display_bytes(Some(editor), &bytes);
+        #[cfg(feature = "html-review")]
+        let signatures = html_signature_claims(signatures, doc.html_source.is_some());
         doc.signatures = Arc::new(signatures);
         doc.renderer = RenderPool::new(doc.display.clone(), render_threads(), doc.config.clone());
         doc.bytes = bytes;
@@ -4453,20 +4627,36 @@ impl Session {
         }
         let signatures = signatures_of(&editor.cos, &bytes, &doc.trust, &doc.sig_cache);
         doc.display = display_bytes(Some(editor), &bytes);
+        #[cfg(feature = "html-review")]
+        let signatures = html_signature_claims(signatures, doc.html_source.is_some());
         doc.signatures = Arc::new(signatures);
         doc.renderer = RenderPool::new(doc.display.clone(), render_threads(), doc.config.clone());
         doc.bytes = bytes;
         Ok(())
     }
 
-    /// The bytes to write for Save: an incremental update of the file as opened/last saved,
-    /// with `/ModDate` stamped. Call `mark_saved` after writing them successfully.
+    /// The bytes to write for Save: a PDF incremental update, or original HTML
+    /// with the complete current native PDF editing layer embedded. Call
+    /// `mark_saved` after writing them successfully.
     ///
     /// A file whose cross-reference data had to be rebuilt is written in full even when nothing
     /// was edited: its bytes as opened are the damaged file, and this save is how the repair the
     /// user was told about reaches the disk (#1937). Not a signed one: a full rewrite would
     /// break its signatures, so with no edits it keeps its bytes, damage and all.
     pub fn save_bytes(&self, id: DocId) -> Result<Arc<Vec<u8>>, EditError> {
+        let pdf = self.save_pdf_bytes(id)?;
+        #[cfg(feature = "html-review")]
+        {
+            native_saved_bytes(self.get(id).ok_or(EditError::NoDocument)?, pdf)
+        }
+        #[cfg(not(feature = "html-review"))]
+        {
+            Ok(pdf)
+        }
+    }
+
+    /// Native PDF bytes for explicit PDF export and PDF-only transformations.
+    pub fn save_pdf_bytes(&self, id: DocId) -> Result<Arc<Vec<u8>>, EditError> {
         let doc = self.get(id).ok_or(EditError::NoDocument)?;
         let Some(editor) = doc.editor.as_ref() else { return Ok(doc.bytes.clone()) };
         let on_saved = Arc::ptr_eq(editor.cos.bytes(), &editor.saved);
@@ -4496,6 +4686,19 @@ impl Session {
 
     /// A compact, garbage-collected rewrite (Save As ▸ "Optimized" / Reduce File Size groundwork).
     pub fn save_full_bytes(&self, id: DocId) -> Result<Arc<Vec<u8>>, EditError> {
+        let pdf = self.save_full_pdf_bytes(id)?;
+        #[cfg(feature = "html-review")]
+        {
+            native_saved_bytes(self.get(id).ok_or(EditError::NoDocument)?, pdf)
+        }
+        #[cfg(not(feature = "html-review"))]
+        {
+            Ok(pdf)
+        }
+    }
+
+    /// Compact PDF bytes independent of the document's source container format.
+    pub fn save_full_pdf_bytes(&self, id: DocId) -> Result<Arc<Vec<u8>>, EditError> {
         let doc = self.get(id).ok_or(EditError::NoDocument)?;
         if doc.is_signed() {
             return Err(EditError::Signed);
@@ -4511,6 +4714,8 @@ impl Session {
     /// file has been replaced. Same error as `mark_saved`.
     pub fn check_save(&self, id: DocId, bytes: &Arc<Vec<u8>>) -> Result<(), EditError> {
         let doc = self.get(id).ok_or(EditError::NoDocument)?;
+        #[cfg(feature = "html-review")]
+        let bytes = native_pdf_candidate(doc, bytes)?;
         let Some(editor) = doc.editor.as_ref() else { return Ok(()) };
         pdfcraft_cos::Document::open_with_password(bytes.clone(), editor.keys.reopen.as_deref()).map_err(|e| EditError::Reopen(e.to_string()))?;
         pdfcraft_render::check_pages(bytes.clone(), doc.password.as_deref(), doc.info.pages.len()).map_err(|e| EditError::Reopen(e.to_string()))
@@ -4520,6 +4725,10 @@ impl Session {
     /// so the next save appends only newer edits. Undo history is kept.
     pub fn mark_saved(&mut self, id: DocId, bytes: Arc<Vec<u8>>, path: Option<String>) -> Result<(), EditError> {
         let doc = self.doc_mut(id)?;
+        #[cfg(feature = "html-review")]
+        let container_bytes = bytes.clone();
+        #[cfg(feature = "html-review")]
+        let bytes = native_pdf_candidate(doc, &bytes)?;
         if let Some(editor) = doc.editor.as_mut() {
             // An encrypted file needs the password it is protected with now (the owner
             // password when known, so saving never downgrades this session's rights).
@@ -4543,7 +4752,12 @@ impl Session {
         }
         doc.dirty = false;
         doc.generation += 1;
-        Self::refresh(doc).inspect_err(|_| Self::show_released(doc))
+        Self::refresh(doc).inspect_err(|_| Self::show_released(doc))?;
+        #[cfg(feature = "html-review")]
+        if doc.html_source.is_some() {
+            doc.html_saved = Some(container_bytes);
+        }
+        Ok(())
     }
 
     /// Enter the permissions (owner) password of a document opened with its user password,
@@ -4673,6 +4887,13 @@ impl Session {
     /// Convert a file Create understands (an image or plain text) to PDF bytes; a PDF is checked
     /// (it must open and allow copying pages) and returned as it is.
     pub fn convert_to_pdf(&self, name: &str, bytes: &Arc<Vec<u8>>) -> Result<(SourceKind, Arc<Vec<u8>>), EditError> {
+        #[cfg(feature = "html-review")]
+        if native_html_input(name, None, bytes) {
+            let (_, pdf) = pdfcraft_html_review::native::open_native(bytes, None).map_err(EditError::Source)?;
+            let pdf = Arc::new(pdf);
+            open_source(name, &pdf)?;
+            return Ok((SourceKind::Pdf, pdf));
+        }
         let Some(kind) = source_kind(name, bytes) else {
             return Err(EditError::Source(format!("{name}: this file type can't be converted; use a PDF, an image or a .txt file")));
         };
@@ -4691,6 +4912,10 @@ impl Session {
     /// it is, unchecked (Combine reads it itself, with its password), as is a file named .pdf
     /// without a `%PDF-` header, which the reader may still open.
     pub fn as_pdf(&self, name: &str, bytes: &Arc<Vec<u8>>) -> Result<Arc<Vec<u8>>, EditError> {
+        #[cfg(feature = "html-review")]
+        if native_html_input(name, None, bytes) {
+            return pdfcraft_html_review::native::open_native(bytes, None).map(|(_, pdf)| Arc::new(pdf)).map_err(EditError::Source);
+        }
         let pdf = match source_kind(name, bytes) {
             Some(SourceKind::Pdf) => true,
             Some(SourceKind::Image | SourceKind::Text) => false,
@@ -5149,6 +5374,11 @@ impl Session {
                         },
                         None => d.bytes.clone(),
                     };
+                #[cfg(feature = "html-review")]
+                let bytes = match native_saved_bytes(d, bytes) {
+                    Ok(bytes) => bytes,
+                    Err(_) => continue,
+                };
                 d.snapshot_generation = d.generation;
                 out.push(RecoverySnapshot {
                     doc: d.id,
@@ -5281,6 +5511,8 @@ impl Session {
             // invalidated by the UI trust path; trust alone changes no document artwork.
             let signatures = if doc.signatures.is_empty() { Vec::new() } else { signatures_of(&editor.cos, &doc.bytes, &doc.trust, &doc.sig_cache) };
             doc.display = display_bytes(Some(editor), &doc.bytes);
+            #[cfg(feature = "html-review")]
+            let signatures = html_signature_claims(signatures, doc.html_source.is_some());
             doc.signatures = Arc::new(signatures);
             doc.renderer = RenderPool::new(doc.display.clone(), render_threads(), doc.config.clone());
         }
@@ -5303,6 +5535,7 @@ impl Session {
     /// `opts.date` takes the session clock.
     pub fn sign(&self, doc: DocId, id: &pdfcraft_sign::DigitalId, mut opts: SignOptions) -> Result<Arc<Vec<u8>>, EditError> {
         let d = self.get(doc).ok_or(EditError::NoDocument)?;
+        check_html_signing(d)?;
         // Encrypted documents are signed under their permissions (the signer checks them).
         let editor = d.editor.as_ref().ok_or_else(|| EditError::ReadOnly(d.read_only_reason.clone().unwrap_or_default()))?;
         if opts.date.is_empty() {
@@ -5323,6 +5556,7 @@ impl Session {
         tsa: &dyn pdfcraft_sign::TimestampAuthority,
     ) -> Result<Arc<Vec<u8>>, EditError> {
         let d = self.get(doc).ok_or(EditError::NoDocument)?;
+        check_html_signing(d)?;
         let editor = d.editor.as_ref().ok_or_else(|| EditError::ReadOnly(d.read_only_reason.clone().unwrap_or_default()))?;
         if opts.date.is_empty() {
             opts.date = self.signing_date();
@@ -5338,6 +5572,7 @@ impl Session {
     /// current state. An empty `date` takes the session clock; the transport is the caller's.
     pub fn timestamp_document(&self, doc: DocId, tsa: &dyn pdfcraft_sign::TimestampAuthority, date: String) -> Result<Arc<Vec<u8>>, EditError> {
         let d = self.get(doc).ok_or(EditError::NoDocument)?;
+        check_html_signing(d)?;
         let editor = d.editor.as_ref().ok_or_else(|| EditError::ReadOnly(d.read_only_reason.clone().unwrap_or_default()))?;
         let date = if date.is_empty() { self.signing_date() } else { date };
         let cos = writable(&editor.cos)?;
@@ -5350,6 +5585,7 @@ impl Session {
     /// (PAdES B-LT): an incremental update that never rewrites signed bytes.
     pub fn embed_ltv(&self, doc: DocId, evidence: &pdfcraft_sign::dss::Evidence) -> Result<Arc<Vec<u8>>, EditError> {
         let d = self.get(doc).ok_or(EditError::NoDocument)?;
+        check_html_signing(d)?;
         let editor = d.editor.as_ref().ok_or_else(|| EditError::ReadOnly(d.read_only_reason.clone().unwrap_or_default()))?;
         let cos = writable(&editor.cos)?;
         let embedded = Arc::new(pdfcraft_sign::dss::embed(&cos, evidence)?);
@@ -5360,6 +5596,7 @@ impl Session {
     /// Record that the signed file `bytes` was saved (to `path`): like [`Session::mark_saved`],
     /// and the edit history before signing is dropped (signing can't be undone).
     pub fn mark_signed(&mut self, id: DocId, bytes: Arc<Vec<u8>>, path: Option<String>) -> Result<(), EditError> {
+        check_html_signing(self.get(id).ok_or(EditError::NoDocument)?)?;
         self.mark_saved(id, bytes, path)?;
         let doc = self.doc_mut(id)?;
         if let Some(e) = doc.editor.as_mut() {
