@@ -8,8 +8,8 @@
     pdfcraft-<version>-windows-<arch>-portable.zip   pdfcraft.exe + pdfcraft-cli.exe + models\ + portable.txt
 
   The binaries link the C runtime statically (+crt-static), so neither the MSI nor the portable
-  zip needs the Visual C++ redistributable. Signing is delegated to sign.ps1 (skipped with a
-  warning when no signing secrets are set).
+  zip needs the Visual C++ redistributable. Signing is delegated to sign.ps1 only when
+  explicitly requested with -Sign.
 
   Needs: Rust (MSVC toolchain + the target), curl and the network (the OCR models), the Windows SDK (rc.exe, signtool.exe),
   and WiX v5: dotnet tool install --global wix --version 5.0.2
@@ -23,7 +23,9 @@ param(
   [ValidateSet('x64', 'x86', 'arm64')] [string] $Arch = 'x64',
   [switch] $SkipBuild,
   # A complete portable distribution without requiring WiX or creating an MSI.
-  [switch] $PortableOnly
+  [switch] $PortableOnly,
+  # Never select an identity from the build machine implicitly.
+  [switch] $Sign
 )
 $ErrorActionPreference = 'Stop'
 $Root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -123,7 +125,9 @@ foreach ($f in 'LICENSE-MIT', 'LICENSE-APACHE', 'NOTICE') {
 }
 Copy-Item (Join-Path $Root 'assets\app-icon\LICENSE-document.txt') $Stage
 
-& (Join-Path $PSScriptRoot 'sign.ps1') (Join-Path $Stage 'pdfcraft.exe') (Join-Path $Stage 'pdfcraft-cli.exe')
+if ($Sign) {
+  & (Join-Path $PSScriptRoot 'sign.ps1') (Join-Path $Stage 'pdfcraft.exe') (Join-Path $Stage 'pdfcraft-cli.exe')
+}
 
 # OCR models (#103): the app looks in models\ beside pdfcraft.exe. `cargo xtask models` fetches every
 # ATTRIBUTION.toml `kind = "model"` file (verified by SHA-256) with its licence and ATTRIBUTION.txt;
@@ -152,7 +156,7 @@ Invoke-Native 'wix build' {
 Invoke-Native 'test-msi' { & (Get-Process -Id $PID).Path -NoProfile -File (Join-Path $PSScriptRoot 'test-msi.ps1') $Msi }
 # wix writes its debug symbols (.wixpdb) next to the MSI; keep them out of the release assets.
 Remove-Item -Force -ErrorAction SilentlyContinue ([IO.Path]::ChangeExtension($Msi, '.wixpdb'))
-& (Join-Path $PSScriptRoot 'sign.ps1') $Msi
+if ($Sign) { & (Join-Path $PSScriptRoot 'sign.ps1') $Msi }
 }
 
 # ---- portable zip ------------------------------------------------------------------------------
