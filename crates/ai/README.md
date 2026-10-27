@@ -1,5 +1,14 @@
 # Optional assistant provider
 
+The native document copilot now uses `copilot`, `acp`, `container`, `workspace`
+and `configuration`: an explicitly configured Hermes ACP runtime, a distinct
+container/workspace per document, streamed answers and per-operation approvals.
+The pure-data `review` module parses bounded revision-bound change proposals;
+the engine prepares normal undoable edits. See [setup and behaviour](../../docs/assistant.md).
+These native modules are excluded on WASM. Merely loading configuration or opening
+the panel starts no agent. The HTTP provider described below remains a separate
+legacy headless interface and retains its original attribution and restrictions.
+
 The provider/request/parser/HTTP foundation is adapted from FBaldo98's PdfCraft
 [contribution #551](https://github.com/storytold/pdfcraft/pull/551), source commit
 `de1750b80d0dc5032d169fd0ef418867fc7a5041`, under the repository's MIT OR Apache-2.0

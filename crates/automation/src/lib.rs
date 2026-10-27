@@ -21,6 +21,8 @@ mod batch;
 mod comments;
 mod content;
 mod conventions;
+#[cfg(not(target_arch = "wasm32"))]
+mod copilot;
 pub mod file_access;
 mod forms;
 #[cfg(feature = "html-review")]
@@ -119,6 +121,10 @@ const FIND_MAX_WARNING_BYTES: usize = 1024;
 
 /// A headless PdfCraft session driven by tool calls.
 pub struct Automation {
+    #[cfg(not(target_arch = "wasm32"))]
+    pub copilot_backend: Option<Arc<dyn pdfcraft_ai::copilot::Backend>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    copilots: HashMap<DocId, copilot::Chat>,
     /// Explicitly supplied by the host. No provider or network transport by default.
     pub ai_provider: Option<pdfcraft_ai::Provider>,
     pub ai_transport: Option<Arc<dyn pdfcraft_ai::Transport>>,
@@ -147,6 +153,10 @@ impl Default for Automation {
 impl Automation {
     pub fn new() -> Self {
         Self {
+            #[cfg(not(target_arch = "wasm32"))]
+            copilot_backend: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            copilots: HashMap::new(),
             ai_provider: None,
             ai_transport: None,
             session: Session::new(),
@@ -221,6 +231,8 @@ impl Automation {
         let a = Args(args);
         let out = match name {
             "ai_summarize" | "ai_ask" | "ai_translate" => self.assistant_request(name, &a)?,
+            #[cfg(not(target_arch = "wasm32"))]
+            "copilot_chat" | "copilot_status" | "copilot_respond" | "copilot_stop" | "copilot_apply_proposal" => self.copilot_request(name, &a)?,
             #[cfg(feature = "html-review")]
             "doc_export_pdf" => self.doc_export_pdf(&a)?,
             #[cfg(feature = "html-review")]
@@ -1093,6 +1105,8 @@ impl Automation {
             return Err(failed("the document has unsaved changes: save it with doc_save, or pass discard_changes: true"));
         }
         self.session.close(id);
+        #[cfg(not(target_arch = "wasm32"))]
+        self.copilots.remove(&id);
         self.renderers.remove(&id);
         self.texts.remove(&id);
         self.listed.retain(|(d, _), _| *d != id);

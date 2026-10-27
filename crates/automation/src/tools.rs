@@ -121,6 +121,21 @@ pub fn tools() -> Vec<ToolDef> {
     let save_out = json!({ "type": "string", "description": "File to write. Omit to open the result as a new unsaved document instead." });
     let open = json!({ "type": "boolean", "description": "Also open the result as a new document (default: only when out is omitted)." });
     vec![
+        #[cfg(not(target_arch = "wasm32"))]
+        t("copilot_chat", "Message document copilot", "Start a turn in the explicitly configured Hermes agent for this document. Creates files only in its declared document workspace, subject to write roots. External model access. Does not apply edits or save.")
+            .cmd("ai.ask").with(schema(json!({"doc":doc(),"page":{"type":"integer","minimum":1},"message":{"type":"string","maxLength":16000}}), &["doc","page","message"])),
+        #[cfg(not(target_arch = "wasm32"))]
+        t("copilot_status", "Read document copilot status", "Poll streamed answer, activity, pending one-operation approval and proposed change summary. Never approves or applies changes.")
+            .with(schema(json!({"doc":doc()}), &["doc"])),
+        #[cfg(not(target_arch = "wasm32"))]
+        t("copilot_respond", "Respond to copilot approval", "Explicitly allow one pending operation or reject it. request_id must exactly match the pending status. No persistent approval.")
+            .with(schema(json!({"doc":doc(),"request_id":{},"allow_once":{"type":"boolean"}}), &["doc","request_id","allow_once"])),
+        #[cfg(not(target_arch = "wasm32"))]
+        t("copilot_stop", "Stop document copilot", "Cancel and close only this document's agent runtime.")
+            .with(schema(json!({"doc":doc()}), &["doc"])),
+        #[cfg(not(target_arch = "wasm32"))]
+        t("copilot_apply_proposal", "Apply reviewed copilot changes", "Explicitly apply the proposal shown by copilot_status as one undoable native transaction. Refuses stale revisions, invalid sources and permissions. Normal doc_save remains separate.")
+            .destructive().with(schema(json!({"doc":doc()}), &["doc"])),
         t("ai_summarize", "Summarize page", "Send one page's text to the explicitly configured AI provider. External network access; disabled without host configuration. Does not edit or save the document.")
             .ro().cmd("ai.summary").with(schema(json!({"doc": doc(), "page": {"type":"integer","minimum":1}}), &["doc", "page"])),
         t("ai_ask", "Ask about page", "Ask the explicitly configured AI provider about one page. External network access; disabled without host configuration. Does not edit or save the document.")

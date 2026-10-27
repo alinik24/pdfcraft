@@ -12,6 +12,7 @@ workspace = true
 html-review = ["dep:pdfcraft-html-review", "dep:serde_json"]
 
 [dependencies]
+pdfcraft-ai = { workspace = true }
 pdfcraft-html-review = { path = "../html-review", optional = true, features = ["native"] }
 serde_json = { workspace = true, optional = true }
 craft-docpath = { workspace = true }

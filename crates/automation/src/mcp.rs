@@ -552,7 +552,7 @@ fn error(id: Value, code: i64, message: &str) -> Value {
 }
 
 fn tool_json(t: &crate::ToolDef) -> Value {
-    let external = matches!(t.name, "ai_summarize" | "ai_ask" | "ai_translate");
+    let external = matches!(t.name, "ai_summarize" | "ai_ask" | "ai_translate") || t.name.starts_with("copilot_");
     json!({
         "name": t.name,
         "title": t.title,

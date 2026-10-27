@@ -1,67 +1,108 @@
-# AI assistant
+# Document copilot
 
-Development feature on this fork, introduced for portable prerelease `.3`.
-Earlier portable builds do not include it. See the release notes for the exact
-source revision and completed validation of each version.
+Status: development branch; completed release checks are recorded in release notes.
+Older HTML prereleases have a placeholder or an earlier assistant.
 
-The existing **All tools > AI assistant** entry is the home for this feature.
-It uses the current editor and theme. There is no separate document workspace,
-coding console, prompt editor or new document tab.
+Open **All tools > AI assistant** for one conversation about the active PDF or HTML.
+Ask questions, summarize, translate, or request changes. Selected text accompanies
+your message; without a selection, the current page accompanies it. Hermes can read
+the current PDF snapshot for more context. Scans need OCR for exact text anchors.
+Opening a document or panel starts no agent and sends no content.
 
-Enable the assistant and enter your chosen model's connection settings. Nothing
-is sent just by opening a file or the panel. Choose **Summarize**, **Explain**,
-**Ask** or **Translate** to send the selected passage, or the current page when
-no text is selected. Select All is refused rather than silently sending only
-some cached pages. Scanned pages need Recognize text before text-based questions.
-This version does not interpret page images or diagram topology.
+Hermes is the actual agent behind the conversation, connected through its native
+Agent Client Protocol. Runtime and model connections are optional, locally configured.
+No account, key, personal profile, model weights or endpoint ships in the app.
 
-The answer shows its source document and page. **Copy** copies it; **Add as comment**
-adds it through the existing Comments, undo and save workflow. It does not rewrite
-document content automatically. An answer from a changed or different document
-cannot be inserted as a comment; ask again against the current version.
-For HTML, saving embeds that comment in the existing native HTML review layer.
-The original HTML DOM remains unchanged.
+The chat streams answers and activity. Operations needing approval offer **Allow
+once** and **Decline**. **Stop** closes that document's runtime. **Add as comment**
+uses normal comments and history. For proposed edits, choose **Review changes**,
+then **Apply changes**. Application is one undoable native transaction; **Save**
+remains separate. Stale proposals are refused. Closing the document closes its agent.
 
-The model must speak the OpenAI-compatible chat-completions protocol. This is a
-protocol choice, not a requirement to use a particular company's models or buy a
-subscription. The app ships no endpoint, account or model. HTTPS is required
-except for a server on this computer. Redirects are refused. Requests run off the
-UI thread, with a 90-second network deadline, a one-megabyte response cap and
-bounded text/output. Cancel discards the response and waits for that one bounded
-worker to finish; it does not cancel computation at the provider.
+Supported proposals: comments; exact quoted highlights, underlines and strikeouts;
+page rotation; document metadata; replacement PDF pages generated in the document
+workspace. Replacement pages retain existing destination annotations. This does
+not promise lossless semantic reconstruction. HTML saves embed annotations and the
+edited PDF representation in the existing native review layer, preserving the
+original DOM. See [HTML review](html-review.md).
 
-Connection details, keys and answers are session-only. Keys are not saved in app
-settings, documents or packages. A generated answer becomes document content only
-through an explicit comment action. Model answers are untrusted plain text, with
-no shell, script execution, automatic link following or autonomous document edits.
-The same explicit process environment as the CLI can prefill the desktop panel;
-the assistant still starts disabled until the user enables it.
+## Private setup
 
-Headless tools are documented in [the provider module](https://github.com/alinik24/pdfcraft/blob/feat/html-review-distribution/crates/ai/README.md).
-They use the same request/parser contract and copying permissions, and advertise
-external access to MCP clients. CLI/MCP configuration never starts either service
-on normal GUI launch.
+The host reads `PDFCRAFT_COPILOT_CONFIG`, or a private
+`.document-workspaces/.runtime/copilot.json` beside the app or a project ancestor.
+An absent configuration leaves Copilot offline and ordinary editing available.
+Never publish this file or your private template.
 
-## Reused work and scouting
+```json
+{
+  "format": "pdfcraft-copilot-runtime/1",
+  "docker": "C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe",
+  "image": "sha256:<immutable image ID from docker image inspect>",
+  "workspace_root": "C:\\Projects\\pdfcraft\\.document-workspaces",
+  "profile_template": "C:\\Projects\\pdfcraft\\.document-workspaces\\.runtime\\profile-template",
+  "credentials": {
+    "env_file": "C:\\Private\\agent.env",
+    "variables": ["YOUR_MODEL_API_KEY"]
+  },
+  "timeout_seconds": 180
+}
+```
 
-Provider code is adapted, with attribution, from
-[upstream contribution #551](https://github.com/storytold/pdfcraft/pull/551).
-The open [assistant proposal #182](https://github.com/storytold/pdfcraft/pull/182)
-is related work; this fork does not open a competing assistant contribution or
-claim either proposal is merged.
+Use your existing Docker installation and a Linux image running Hermes ACP.
+[The runtime helper](../packaging/windows/copilot-runtime.ps1) builds a pinned
+Hermes source archive with locked, hash-checked dependencies. Existing Git, uv,
+Docker and Windows tar are required; the helper installs or activates none of them.
+Use the resulting immutable image ID; mutable tags such as `latest` are refused.
 
-The supplied architecture review correctly distinguishes static review from
-semantic source editing. Its manifest, stable identity, selection context,
-revision checks and reversible action recommendations inform the next stage.
-Current anchors are document/page/text, not stable semantic design-object IDs.
+The template is a reviewed Hermes profile: `config.yaml`, optionally `SOUL.md`,
+`skills/`, and `memories/`. Select the model explicitly and disable unapproved
+fallbacks. Refer to credentials by environment-variable name. Do not include `.env`,
+authentication files, entire homes, discovered hooks or unrestricted host MCP
+configurations. Preferences and skills do not grant additional permissions.
 
-[Tiptap](https://tiptap.dev/docs/editor/getting-started/overview) is a web editor;
-[draw.io embed mode](https://www.drawio.com/docs/reference/embed-mode/) exchanges
-diagram XML through a browser host. Both require an isolated integration study
-before adoption in this native Rust application. Neither is installed here.
-[Docling](https://docling-project.github.io/docling/) remains a candidate external
-structure-extraction adapter, with output fidelity and model licences to evaluate.
-No new editor framework, inference engine or model weights are bundled.
+Each source gets a named, distinct folder under `workspace_root`. Unsaved documents
+have a private session identity. Only that folder is mounted: read-only
+`input/current.pdf`, `outputs/`, `.tmp/`, `.cache/`, `.home/`, `.hermes/`, and an
+optional `.venv/`. Generated files and environments stay there. The container root,
+snapshot, configuration and workspace manifest are read-only. No host socket or
+other document is mounted. Each runtime has a 2 GiB limit, two CPUs and a bounded
+lifetime. Cancellation removes only its owned container; Docker must be available
+for cleanup. Container isolation protects host files; it is not a network firewall.
+Messages and agent-selected content go to the configured model connection.
 
-Voice, continuous conversation, podcasts, embedded browsing, source-object editing
-and general structure-preserving PDF-to-HTML conversion remain future work.
+Keys come from the existing process environment or a referenced local environment
+file. Values are excluded from command arguments and document metadata. Known key
+values are redacted in protocol text and refused in imported outputs. Review
+content before sharing it publicly.
+
+## Automation and reuse
+
+The same backend serves opt-in CLI/MCP tools `copilot_chat`, `copilot_status`,
+`copilot_respond`, `copilot_stop`, and `copilot_apply_proposal`. Host write roots
+are checked before workspace creation. Status never approves or applies changes.
+Normal `doc_save` and undo tools remain the persistence/history interface. Ordinary
+GUI launch starts no MCP server or listening port.
+
+An explicit live check using a synthetic file and your configured model:
+
+```text
+cargo run -p pdfcraft-automation --features html-review --example copilot_check -- synthetic.html --allow-workspace-operations --apply
+```
+
+It checks an actual agent-created proposal, native application, undo/redo, save,
+reopen and shutdown. It never runs automatically in unit tests. For another machine,
+install the same public package, build or transfer the pinned runtime without
+credentials, and reference that machine's existing local model credential. A reviewed
+setup-only export can transfer reusable settings; logins, approval grants, binary
+tools and environments need separate live checks.
+
+## Provenance and limits
+
+The earlier provider foundation retains attribution to upstream contribution
+[#551](https://github.com/storytold/pdfcraft/pull/551). Related proposal
+[#182](https://github.com/storytold/pdfcraft/pull/182) is separate. External
+[Hermes Agent](https://github.com/NousResearch/hermes-agent) retains its own licence
+and notices. This fork does not claim upstream adoption.
+
+Voice/microphone controls, podcasts, an embedded browser, semantic design-object
+editing and general structure-preserving PDF-to-HTML conversion remain future work.

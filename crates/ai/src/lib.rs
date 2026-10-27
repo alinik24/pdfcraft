@@ -15,6 +15,23 @@
 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 pub mod http;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub mod acp;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod workspace;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod copilot;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod container;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod configuration;
+
+pub mod review;
+
 use serde_json::{Value, json};
 
 /// The default amount of document text sent with one request, in characters.

@@ -931,6 +931,7 @@ fn run_child(exe: &Path, file: &Path, dpi: &str, timeout: Duration) -> serde_jso
 
 fn automation(args: &[String]) -> Result<pdfcraft_automation::Automation, String> {
     let mut a = pdfcraft_automation::Automation::new();
+    a.copilot_backend = pdfcraft_ai::configuration::configured_backend()?;
     if let (Ok(endpoint), Ok(model)) = (std::env::var("PDFCRAFT_AI_ENDPOINT"), std::env::var("PDFCRAFT_AI_MODEL")) {
         let provider = pdfcraft_ai::Provider::new(pdfcraft_ai::Api::OpenAi, endpoint, model).with_key(std::env::var("PDFCRAFT_AI_API_KEY").ok());
         provider.url().map_err(|e| e.to_string())?;

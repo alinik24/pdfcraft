@@ -31,11 +31,13 @@ The native editor uses existing PDF tools and their limitations. Source-retainin
 
 The CLI supports standard document/comment/edit/save operations, HTML review inspection/export and a separate PDF export. MCP and UI control are opt-in.
 
-The existing **AI assistant** entry now supports
-selected-text/current-page summaries, questions and translation, with an explicit
-**Add as comment** action. Portable versions before `.3` do not include it.
-It is off by default and uses a model you configure;
-keys and answers are session-only. See [assistant behavior and limits](docs/assistant.md).
+The development branch connects the existing **AI assistant** entry to one
+document-scoped Hermes copilot conversation. It streams answers, asks for individual
+operation approvals and offers proposed native edits for review, apply and undo.
+Its optional container keeps generated files in a separate folder for each document
+under the project. Model routing and credentials remain local. Earlier portable
+versions do not include this integration; check the exact release notes before
+installing. See [copilot setup, automation and limits](docs/assistant.md).
 
 [The researched architecture proposal](docs/agent-review-architecture.md) describes semantic HTML/SVG, stable object IDs, W3C annotation anchors, source-to-page geometry, optional diagram profiles, a selection-aware copilot, speech adapters and conversion fidelity reports. It is a proposal, not an implementation claim.
 

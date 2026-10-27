@@ -1,5 +1,7 @@
 # PdfCraft roadmap: milestones and what's next
 
+> 2026-10-27: development copilot uses Hermes ACP in the existing assistant panel with isolated document folders, explicit native review/apply and matching headless tools. Synthetic interface tests and a live local HTML proposal/apply/undo/save/reopen check pass. Reusable installation validation is in progress; voice and semantic object editing remain future work.
+
 > 2026-10-25: HTML integrated with existing native tabs, commands, comments, undo and HTML save/recovery through an embedded page layer; desktop feature enabled in normal builds. Validation in progress; PDF estimates unchanged. See [HTML review](html-review.md).
 
 > **Last reviewed:** 2026-10-23 | **Last updated:** 2026-10-23 | **Change:** minor (M8, #3205 follow-up: labelled Italian international phone numbers with a slash match whole; estimates unchanged)

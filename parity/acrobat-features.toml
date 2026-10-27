@@ -9616,7 +9616,7 @@ milestone = "M13"
 status = "partial"
 commands = []
 tools = []
-evidence = ["crates/ai/src/tests.rs::document_text_requires_encryption_off_loopback_even_without_a_key", "crates/ai/src/tests.rs::a_provider_cannot_echo_a_key_in_its_error", "crates/ui-egui/src/assistant.rs::opening_the_native_panel_is_off_and_never_sends_until_asked"]
+evidence = ["crates/ai/src/tests.rs::document_text_requires_encryption_off_loopback_even_without_a_key", "crates/ai/src/tests.rs::a_provider_cannot_echo_a_key_in_its_error", "crates/ui-egui/src/assistant.rs::opening_the_native_panel_never_connects_and_shows_one_composer"]
 notes = "Opt-in, user-configured OpenAI-compatible transport; session-only connection/key. No model installer, persistent credential store or speech integration."
 
 [[feature]]
@@ -9641,7 +9641,7 @@ status = "partial"
 commands = ["ai.ask"]
 tools = ["ai_ask"]
 evidence = ["crates/automation/src/assistant_tests.rs::assistant_tools_share_document_permissions_and_leave_the_file_unchanged", "crates/ui-egui/src/assistant.rs::changing_tabs_cannot_put_an_answer_in_another_document", "crates/ui-egui/src/assistant.rs::assistant_comment_travels_inside_saved_html_and_reopens"]
-notes = "Single-page/selection questions and translation, supplied page markers, plain-text answers. No retrieval, conversation history, citation navigation or autonomous edits."
+notes = "Legacy single-page tools plus optional Hermes conversation with explicit reviewed edits. No semantic object editor or citation-navigation UI."
 
 [[feature]]
 id = "misc.ai-conversational-edit"
@@ -9649,11 +9649,11 @@ title = "Natural-language editing through registry commands"
 area = "N"
 tier = "P3"
 milestone = "M13"
-status = "planned"
-commands = []
-tools = []
-evidence = []
-notes = ""
+status = "partial"
+commands = ["ai.ask"]
+tools = ["copilot_chat", "copilot_status", "copilot_respond", "copilot_stop", "copilot_apply_proposal"]
+evidence = ["crates/ui-egui/src/assistant.rs::proposed_changes_need_review_and_apply_then_save_as_one_undoable_transaction", "crates/automation/src/copilot.rs::proposal_requires_explicit_apply_has_undo_and_refuses_stale_revision", "crates/engine/src/review.rs::reviewed_annotations_survive_inside_html_source_on_save_and_reopen"]
+notes = "Opt-in native Hermes ACP conversation with a confined per-document container, one-operation approvals and revision-bound reviewed undoable edits. Supports comments, exact text markup, rotation, metadata and generated PDF page replacement. Voice, semantic DOM/object editing and general conversion fidelity remain unimplemented."
 
 [[feature]]
 id = "misc.ai-presentation"

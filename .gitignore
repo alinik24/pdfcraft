@@ -22,3 +22,6 @@ plan/
 /*.pfx
 /*.p12
 /*-private.pem
+
+# Private per-document copilot inputs, conversations, environments and outputs.
+/.document-workspaces/

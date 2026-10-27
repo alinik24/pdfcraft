@@ -1,5 +1,12 @@
 # pdfcraft-automation
 
+The optional native Hermes copilot shares the editor's backend and review engine.
+Use `copilot_chat`, poll `copilot_status`, explicitly respond to any individual
+approval with `copilot_respond`, then optionally `copilot_apply_proposal`. Saving
+is still `doc_save`; stop a document runtime with `copilot_stop`. No agent launches
+without host configuration and a chat call. Workspace creation honours write
+roots. See [private setup and live reuse checks](../../docs/assistant.md).
+
 Agent control for PdfCraft: a headless tool table over the engine, and an opt-in MCP server.
 
 - **Layer:** L7 (architecture §13), but headless. It depends on `engine`, `render` and `organize`, never on a UI toolkit.

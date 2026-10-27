@@ -4363,6 +4363,7 @@ dependencies = [
  "idna",
  "image",
  "pdfcraft-a11y",
+ "pdfcraft-ai",
  "pdfcraft-annot",
  "pdfcraft-audit",
  "pdfcraft-compare",

@@ -849,6 +849,8 @@ pub struct PdfCraftApp {
     pub js_console: js_ui::JsConsole,
     pub assistant: assistant::Assistant,
     pub ai_transport: Option<assistant::Sender>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub copilot_backend: Option<std::sync::Arc<dyn pdfcraft_ai::copilot::Backend>>,
     pub doc_js: js_ui::DocJsDraft,
     pub a11y: a11y_ui::A11yState,
     pub(crate) tags_state: tags_ui::State,
@@ -1221,6 +1223,8 @@ impl PdfCraftApp {
             js_console: Default::default(),
             assistant: Default::default(),
             ai_transport: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            copilot_backend: None,
             doc_js: Default::default(),
             a11y: a11y_ui::A11yState::default(),
             tags_state: Default::default(),
@@ -3618,6 +3622,8 @@ impl eframe::App for PdfCraftApp {
             }
         }
         self.poll_updates();
+        #[cfg(not(target_arch = "wasm32"))]
+        self.poll_copilot(ctx);
         self.poll_print();
         // Shortcuts deferred last frame: the text field has taken that frame's typing since.
         let deferred = std::mem::take(&mut self.deferred_commands);
@@ -3698,6 +3704,8 @@ impl eframe::App for PdfCraftApp {
         }
         chrome::tab_strip(self, ui);
         chrome::mode_bar(self, ui);
+        #[cfg(not(target_arch = "wasm32"))]
+        assistant::activity(self, ui);
         if self.active.is_some() {
             chrome::right_rail(self, ui);
             // Read mode hides the tools, not the navigation panes: the rail stays visible
