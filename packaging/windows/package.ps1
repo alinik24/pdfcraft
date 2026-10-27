@@ -24,6 +24,8 @@ param(
   [switch] $SkipBuild,
   # A complete portable distribution without requiring WiX or creating an MSI.
   [switch] $PortableOnly,
+  # Reduce peak memory on smaller machines without changing release codegen.
+  [ValidateRange(1, 64)] [int] $BuildJobs = 2,
   # Never select an identity from the build machine implicitly.
   [switch] $Sign
 )
@@ -100,7 +102,7 @@ if (-not $SkipBuild) {
   # Fail the build (rather than warn) if the icon/VERSIONINFO can't be embedded.
   $env:PDFCRAFT_REQUIRE_WINRES = '1'
   try {
-    Invoke-Native "cargo build ($Target)" { cargo build --release --locked -p pdfcraft -p pdfcraft-cli --features pdfcraft-cli/html-review --target $Target -j 2 }
+    Invoke-Native "cargo build ($Target)" { cargo build --release --locked -p pdfcraft -p pdfcraft-cli --features pdfcraft-cli/html-review --target $Target -j $BuildJobs }
   } finally {
     $env:CARGO_ENCODED_RUSTFLAGS = $previousFlags
     [Environment]::SetEnvironmentVariable($nativeFlagsName, $previousNativeFlags)
