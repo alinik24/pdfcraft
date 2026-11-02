@@ -26,10 +26,55 @@ not promise lossless semantic reconstruction. HTML saves embed annotations and t
 edited PDF representation in the existing native review layer, preserving the
 original DOM. See [HTML review](html-review.md).
 
+## Connect your agent
+
+1. Install the public portable package and open **All tools > AI assistant**.
+   Connection controls are available before opening a document.
+2. Use **Choose connection file** to select your private Hermes runtime JSON
+   prepared using the setup below. This remembers its location for this user,
+   so moving the application or installing a new version preserves the connection.
+   Keep it outside tracked source or in an explicitly ignored private runtime folder.
+3. Open your existing Docker Desktop and wait until its engine is ready. Choose
+   **Check connection**. This checks local configuration, credential availability,
+   Docker and the pinned runtime image; it makes no model request and sends no
+   document. A ready local runtime does not prove that a provider login is valid.
+4. Open a PDF or HTML, then send a message. A successful reply verifies your model
+   connection. Start with a document you are comfortable sending to that model.
+5. Ask for a change, then use **Review changes > Apply changes** and **Save**.
+   You can decline agent operations, stop the conversation or undo applied edits.
+
+Example requests: “Summarize this page”, “Highlight ‘the exact selected phrase’”,
+“Underline ‘another exact phrase’ and add a note”, or “Add a comment explaining
+this paragraph”. Quote exact text for markup. Read-only answers do not edit your
+document. Saving is always separate from applying a proposal.
+
+### Troubleshooting
+
+| What you see | What to do |
+| --- | --- |
+| No agent configured | Choose your private connection file, or use Retry connection after repairing it. |
+| Docker unavailable | Open the existing Docker Desktop and wait for its engine. Do not terminate unrelated work to reclaim memory. |
+| Runtime image unavailable | Prepare the pinned runtime with the helper below. No image is downloaded automatically. |
+| Credential unavailable | Repair the existing local credential reference. Do not paste keys into chat or the document. |
+| Runtime ready but no model reply | Check your selected model, access and quota in your own Hermes setup. No alternate account or paid fallback is selected automatically. |
+| Connection changed while using a document | Stop active conversations before switching. Existing documents and edit history are retained. |
+
+**Check connection** starts only explicit local Docker diagnostic commands, each
+with a ten-second deadline, using your existing Docker context (which can refer
+to a remote Docker engine if you configured one). Diagnostic child processes do
+not receive model keys. Ordinary startup does not start Docker, download a
+runtime, run Hermes or send a document. The in-app selection stores a private
+file path, not credential values, profiles, permissions or chat history.
+
 ## Private setup
 
-The host reads `PDFCRAFT_COPILOT_CONFIG`, or a private
+The host reads an explicit `PDFCRAFT_COPILOT_CONFIG` override first, then the
+connection selected in the assistant, then a private
 `.document-workspaces/.runtime/copilot.json` beside the app or a project ancestor.
+The selected connection reference is local to the current user:
+`%LOCALAPPDATA%/PdfCraft/copilot-connection.json` on Windows, or
+`$XDG_CONFIG_HOME/PdfCraft/copilot-connection.json` (falling back to
+`~/.config/PdfCraft/copilot-connection.json`) on other desktops.
 An absent configuration leaves Copilot offline and ordinary editing available.
 Never publish this file or your private template.
 
@@ -76,6 +121,12 @@ values are redacted in protocol text and refused in imported outputs. Review
 content before sharing it publicly.
 
 ## Automation and reuse
+
+Host setup is also available headlessly: `pdfcraft-cli copilot connect <runtime.json>`
+remembers the same private reference, and `pdfcraft-cli copilot check` performs the
+same bounded local diagnostic. These are explicit host commands; they are not
+exposed to document/MCP requests. Neither starts an agent or validates model access.
+
 
 The same backend serves opt-in CLI/MCP tools `copilot_chat`, `copilot_status`,
 `copilot_respond`, `copilot_stop`, and `copilot_apply_proposal`. Host write roots

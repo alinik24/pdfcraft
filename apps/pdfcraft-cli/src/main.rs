@@ -71,6 +71,8 @@ pdfcraft-cli audit  <file.pdf> [--password PW]            find faux redactions (
 pdfcraft-cli batch <files or dirs...> --steps convert,ocr,optimize --out-dir DIR
                       [--recursive] [--root DIR] [--stop-on-error]
                       [--ppi 150] [--quality 60] [--dpi 300] [--language en] [--ocr-all-pages]
+pdfcraft-cli copilot check                               check local agent runtime; no model request
+pdfcraft-cli copilot connect <runtime.json>               remember a private connection file
 pdfcraft-cli tools                                       automation tools and their JSON Schemas
 pdfcraft-cli run    <tool> [key=value …] [--root DIR] [--out image.png]
 pdfcraft-cli run    --script steps.json [--root DIR] [--report]
@@ -120,6 +122,7 @@ fn main() -> ExitCode {
         Some("check") => check(&args[1..]),
         Some("check-one") => check_one(&args[1..]),
         Some("audit") => audit(&args[1..]),
+        Some("copilot") => copilot_setup(&args[1..]),
         Some("tools") => tools(),
         Some("run") => run(&args[1..]),
         Some("batch") => batch::run(&args[1..]),
@@ -941,6 +944,40 @@ fn automation(args: &[String]) -> Result<pdfcraft_automation::Automation, String
     match flag(args, "--root") {
         Some(root) => a.with_root(root).map_err(|e| format!("--root {root}: {e}")),
         None => Ok(a),
+    }
+}
+
+#[cfg(test)]
+mod copilot_setup_tests {
+    use super::*;
+    #[test]
+    fn setup_rejects_unknown_commands_and_missing_connections() {
+        assert!(copilot_setup(&[]).is_err());
+        assert!(copilot_setup(&["unknown".into()]).is_err());
+        assert!(copilot_setup(&["connect".into()]).is_err());
+        let absent = std::env::temp_dir().join(format!(
+            "pdfcraft-missing-connection-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        assert!(copilot_setup(&["connect".into(), absent.to_string_lossy().into_owned()]).is_err());
+    }
+}
+
+/// Host setup is explicit CLI-only; document/MCP tools cannot change agent bindings.
+fn copilot_setup(args: &[String]) -> Result<(), CliError> {
+    match args {
+        [action] if action == "check" => {
+            pdfcraft_ai::configuration::check_connection()?;
+            stdout_line(format_args!("{{\"local_runtime_ready\":true,\"model_tested\":false}}"))?;
+            Ok(())
+        }
+        [action, path] if action == "connect" => {
+            let _backend = pdfcraft_ai::configuration::connect_and_remember(Path::new(path))?;
+            stdout_line(format_args!("{{\"connection_remembered\":true,\"agent_started\":false}}"))?;
+            Ok(())
+        }
+        _ => Err("usage: pdfcraft-cli copilot check | copilot connect <runtime.json>".into()),
     }
 }
 

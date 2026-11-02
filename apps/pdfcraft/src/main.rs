@@ -422,7 +422,10 @@ fn app_creator<'a>(
         // Its credentials stay behind the native backend, outside the UI state.
         match pdfcraft_ai::configuration::configured_backend() {
             Ok(backend) => app.copilot_backend = backend,
-            Err(error) => log::warn!("{error}"),
+            Err(error) => {
+                log::warn!("{error}");
+                app.assistant.connection_error = Some(error);
+            }
         }
         // Explicit process configuration may prefill the existing panel. Enabling it and
         // sending a request remain user actions; none of these values are persisted.

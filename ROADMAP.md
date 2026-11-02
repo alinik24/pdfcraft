@@ -1,5 +1,7 @@
 # PdfCraft roadmap
 
+> 2026-11-02: connection-onboarding repair in development: explicit private connection selection, relocation-stable discovery, visible setup errors and a bounded local runtime check. Current installed local Hermes summary was reverified. Peer runtime was unavailable; final new-build acceptance is pending. No additional document-edit capabilities are claimed.
+
 > 2026-10-27: development branch adds one Hermes ACP copilot conversation in the existing assistant panel, isolated document workspaces, explicit review/apply and headless parity. Local unit and synthetic UI checks pass; live runtime and reusable installation checks are being completed. Voice and semantic DOM editing remain proposals; PDF parity estimates unchanged.
 
 > 2026-10-25: HTML now uses the existing native tabs, tools, edit history and HTML save/recovery with an embedded page layer. Desktop feature enabled in normal builds; validation in progress. Paged edits preserve original HTML source; confidentiality operations require PDF export. PDF parity estimates unchanged. See `docs/html-review.md`.

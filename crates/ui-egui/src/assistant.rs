@@ -22,6 +22,12 @@ pub struct Assistant {
     pub language: String,
     pub answer: String,
     pub error: Option<String>,
+    /// Local setup errors are displayed, never serialized with document state.
+    pub connection_error: Option<String>,
+    #[cfg(not(target_arch = "wasm32"))]
+    connection_check: Option<mpsc::Receiver<Result<(), String>>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    connection_status: Option<String>,
     source: Option<Source>,
     pending: Option<mpsc::Receiver<Result<ai::Answer, String>>>,
     cancelled: bool,
@@ -670,16 +676,100 @@ fn describe_change(change: &ai::review::Change) -> String {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+fn connection_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens) {
+    if let Some(receiver) = &app.assistant.connection_check {
+        match receiver.try_recv() {
+            Ok(result) => {
+                app.assistant.connection_check = None;
+                match result {
+                    Ok(()) => {
+                        app.assistant.connection_status = Some(tl!("Local runtime ready. Send a message to test your model.").into());
+                        app.assistant.connection_error = None;
+                    }
+                    Err(error) => {
+                        app.assistant.connection_status = None;
+                        app.assistant.connection_error = Some(error);
+                    }
+                }
+            }
+            Err(mpsc::TryRecvError::Empty) => ui.ctx().request_repaint_after(std::time::Duration::from_millis(100)),
+            Err(mpsc::TryRecvError::Disconnected) => {
+                app.assistant.connection_check = None;
+                app.assistant.connection_error = Some(tl!("The connection check stopped. Please try again.").into());
+            }
+        }
+    }
+    let configured = app.copilot_backend.is_some();
+    ui.label(if configured { tl!("Hermes configured") } else { tl!("Connect your agent") });
+    if let Some(error) = &app.assistant.connection_error {
+        ui.label(egui::RichText::new(error).color(t.text_muted));
+    }
+    if let Some(status) = &app.assistant.connection_status {
+        ui.label(status);
+    }
+    if !configured {
+        ui.label(tl!("Choose your private Hermes connection file. Your model credentials stay in your existing local credential store."));
+        ui.label(tl!("Docker must be running when you send a message. Connecting here does not start an agent or send your document."));
+        ui.hyperlink_to(tl!("Setup guide"), "https://github.com/alinik24/pdfcraft/blob/feat/html-review-distribution/docs/assistant.md");
+    }
+    // Changing backends while a document conversation is active would leave two
+    // different agents behind one panel. Finish/stop those conversations first.
+    let active = app.assistant.connection_check.is_some()
+        || app.assistant.chat.documents.iter().any(|d| d.busy() || d.connection.is_some() || d.proposal.is_some() || d.prepared.is_some());
+    ui.horizontal_wrapped(|ui| {
+        if ui.add_enabled(!active, egui::Button::new(tl!("Check connection"))).clicked() {
+            let (tx, rx) = mpsc::channel();
+            let ctx = ui.ctx().clone();
+            match std::thread::Builder::new().name("copilot-connection-check".into()).spawn(move || {
+                let _ = tx.send(ai::configuration::check_connection());
+                ctx.request_repaint();
+            }) {
+                Ok(_) => {
+                    app.assistant.connection_check = Some(rx);
+                    app.assistant.connection_status = Some(tl!("Checking local runtime…").into());
+                }
+                Err(_) => app.assistant.connection_error = Some(tl!("The connection check could not start. Please try again.").into()),
+            }
+        }
+        if ui.add_enabled(!active, egui::Button::new(tl!("Choose connection file"))).clicked() {
+            let dialog = rfd::AsyncFileDialog::new().add_filter("Hermes connection", &["json"]).set_title(tl!("Choose connection file"));
+            app.ask_one(crate::pickers::Ask::File(dialog), None, |app, path| match ai::configuration::connect_and_remember(&path) {
+                Ok(backend) => {
+                    app.copilot_backend = Some(backend);
+                    app.assistant.connection_error = None;
+                    app.assistant.connection_status = None;
+                }
+                Err(error) => app.assistant.connection_error = Some(error),
+            });
+        }
+        if ui.add_enabled(!active, egui::Button::new(tl!("Retry connection"))).clicked() {
+            match ai::configuration::configured_backend() {
+                Ok(backend) => {
+                    app.copilot_backend = backend;
+                    app.assistant.connection_error = None;
+                    app.assistant.connection_status = None;
+                }
+                Err(error) => app.assistant.connection_error = Some(error),
+            }
+        }
+    });
+    if active && app.assistant.connection_check.is_none() {
+        ui.label(tl!("Stop active conversations before changing the agent connection."));
+    }
+    ui.separator();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn chat_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens) {
     widgets::begin_dialog(ui);
     ui.label(tl!("Copilot"));
     ui.label(egui::RichText::new(tl!("Ask, summarize, translate, or review your document in one conversation.")).color(t.text_muted));
+    connection_panel(app, ui, t);
     let Some((_, id)) = app.active_ids() else {
         ui.label(tl!("Open a document to start a conversation."));
         return;
     };
     if app.copilot_backend.is_none() {
-        ui.label(tl!("Connect your local agent in the desktop setup to use Copilot."));
         return;
     }
     let index = match app.assistant.chat.documents.iter().position(|d| d.id == id) {
@@ -908,6 +998,37 @@ mod tests {
         assert!(!app.assistant.busy(), "assistant worker did not finish");
         assert!(app.assistant.error.is_none(), "{:?}", app.assistant.error);
     }
+    #[test]
+    fn runtime_check_reports_failure_without_persisting_it_or_opening_a_document() {
+        let mut app = PdfCraftApp::new();
+        app.set_option("language", "en").unwrap();
+        app.select_tool("ai");
+        let (tx, rx) = mpsc::channel();
+        app.assistant.connection_check = Some(rx);
+        tx.send(Err("Synthetic runtime unavailable".into())).unwrap();
+        let mut h = Harness::builder().with_size(egui::vec2(1400.0, 1000.0)).build_eframe(move |_| app);
+        h.run_steps(3);
+        assert!(h.query_by_label("Synthetic runtime unavailable").is_some());
+        assert!(h.query_by_label("Check connection").is_some());
+        assert!(h.state().assistant.connection_check.is_none());
+        assert!(!h.state().persist().contains("Synthetic runtime unavailable"));
+    }
+
+    #[test]
+    fn offline_onboarding_is_available_before_opening_a_document() {
+        let mut app = PdfCraftApp::new();
+        app.set_option("language", "en").unwrap();
+        app.assistant.connection_error = Some("Synthetic connection failure".into());
+        let mut h = Harness::builder().with_size(egui::vec2(1400.0, 1000.0)).build_eframe(move |_| app);
+        h.state_mut().select_tool("ai");
+        h.run_steps(3);
+        assert!(h.query_by_label("Choose connection file").is_some());
+        assert!(h.query_by_label("Retry connection").is_some());
+        assert!(h.query_by_label("Synthetic connection failure").is_some());
+        assert!(h.query_by_label("Message Copilot").is_none());
+        assert!(!h.state().persist().contains("Synthetic connection failure"));
+    }
+
     #[test]
     fn opening_the_native_panel_never_connects_and_shows_one_composer() {
         let (mut app, sender) = app();

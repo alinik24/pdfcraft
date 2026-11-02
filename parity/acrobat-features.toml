@@ -9652,7 +9652,7 @@ milestone = "M13"
 status = "partial"
 commands = ["ai.ask"]
 tools = ["copilot_chat", "copilot_status", "copilot_respond", "copilot_stop", "copilot_apply_proposal"]
-evidence = ["crates/ui-egui/src/assistant.rs::proposed_changes_need_review_and_apply_then_save_as_one_undoable_transaction", "crates/automation/src/copilot.rs::proposal_requires_explicit_apply_has_undo_and_refuses_stale_revision", "crates/engine/src/review.rs::reviewed_annotations_survive_inside_html_source_on_save_and_reopen"]
+evidence = ["crates/ui-egui/src/assistant.rs::offline_onboarding_is_available_before_opening_a_document", "crates/ui-egui/src/assistant.rs::runtime_check_reports_failure_without_persisting_it_or_opening_a_document", "crates/ui-egui/src/assistant.rs::proposed_changes_need_review_and_apply_then_save_as_one_undoable_transaction", "crates/automation/src/copilot.rs::proposal_requires_explicit_apply_has_undo_and_refuses_stale_revision", "crates/engine/src/review.rs::reviewed_annotations_survive_inside_html_source_on_save_and_reopen"]
 notes = "Opt-in native Hermes ACP conversation with a confined per-document container, one-operation approvals and revision-bound reviewed undoable edits. Supports comments, exact text markup, rotation, metadata and generated PDF page replacement. Voice, semantic DOM/object editing and general conversion fidelity remain unimplemented."
 
 [[feature]]
