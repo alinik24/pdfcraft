@@ -4753,11 +4753,13 @@ impl Session {
         }
         doc.dirty = false;
         doc.generation += 1;
-        Self::refresh(doc).inspect_err(|_| Self::show_released(doc))?;
+        // Saving has already committed these bytes to disk. A later display
+        // refresh failure must not restore the previous saved HTML container.
         #[cfg(feature = "html-review")]
         if doc.html_source.is_some() {
             doc.html_saved = Some(container_bytes);
         }
+        Self::refresh(doc).inspect_err(|_| Self::show_released(doc))?;
         Ok(())
     }
 

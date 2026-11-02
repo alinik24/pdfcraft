@@ -131,6 +131,24 @@ fn native_html_save_validation_rejects_changed_source_and_raw_pdf() {
 
 #[cfg(feature = "html-review")]
 #[test]
+fn native_html_saved_container_tracks_disk_when_refresh_fails() {
+    let (mut session, _) = session_with(1);
+    let original = pdfcraft_html_review::native::save_native("<p>Retained source</p>", &fixture(1), serde_json::json!([])).unwrap();
+    let id = session.open("review.html", None, Arc::new(original), None).unwrap();
+    session.apply(id, Edit::SetInfo { key: "Title".into(), value: "Saved change".into() }).unwrap();
+    let saved = session.save_bytes(id).unwrap();
+    session.check_save(id, &saved).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("review.html");
+    std::fs::write(&path, saved.as_slice()).unwrap();
+    panic_on_refresh(1);
+    assert!(guard(|| session.mark_saved(id, saved.clone(), Some(path.to_string_lossy().into_owned()))).is_err());
+    // A display refresh failure does not undo a file that was already saved.
+    assert_eq!(session.get(id).unwrap().saved_bytes().as_slice(), std::fs::read(&path).unwrap());
+}
+
+#[cfg(feature = "html-review")]
+#[test]
 fn native_html_confidentiality_operations_require_pdf_export() {
     let source = "<p>Original secret remains in HTML source.</p>";
     let package = pdfcraft_html_review::native::save_native(source, &fixture(1), serde_json::json!([])).expect("package");
