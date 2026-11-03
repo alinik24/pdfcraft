@@ -21,6 +21,8 @@ pub mod camera_edges;
 pub mod catalog;
 pub mod commands;
 pub mod compare;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod copilot_text;
 mod copy_image;
 pub mod dates;
 pub mod export;

@@ -86,6 +86,7 @@ impl DocumentIdentity {
 pub struct DocumentWorkspace {
     root: PathBuf,
     snapshot: PathBuf,
+    project_runtime: bool,
 }
 
 impl DocumentWorkspace {
@@ -95,6 +96,18 @@ impl DocumentWorkspace {
         create_checked_directory(configured_root)?;
         let base = configured_root.canonicalize()?;
         let root = base.join(identity.directory_name());
+        Self::open_directory(root, identity, false)
+    }
+
+    /// Dedicated, opt-in project agent state. Never adopts or merges document profiles.
+    pub(crate) fn open_project_runtime(configured_root: &Path) -> io::Result<Self> {
+        let parent = configured_root.join(".runtime");
+        create_checked_directory(&parent)?;
+        let identity = DocumentIdentity::unsaved("pdfcraft-project-runtime/1", "agent.bin")?;
+        Self::open_directory(parent.canonicalize()?.join("agent"), identity, true)
+    }
+
+    fn open_directory(root: PathBuf, identity: DocumentIdentity, project_runtime: bool) -> io::Result<Self> {
         let created = match fs::create_dir(&root) {
             Ok(()) => true,
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => false,
@@ -124,7 +137,7 @@ impl DocumentWorkspace {
         for name in DIRECTORIES {
             create_checked_directory(&root.join(name))?;
         }
-        let workspace = Self { snapshot: root.join(expected_snapshot), root };
+        let workspace = Self { snapshot: root.join(expected_snapshot), root, project_runtime };
         workspace.check_root()?;
         workspace.resolve_child(workspace.snapshot.strip_prefix(&workspace.root).map_err(io::Error::other)?)?;
         Ok(workspace)
@@ -143,7 +156,7 @@ impl DocumentWorkspace {
     /// Resolve an allowed relative child whose parent already exists. The final child may be new.
     /// This deliberately excludes root metadata and unrecognised top-level directories.
     pub fn resolve_child(&self, relative: &Path) -> io::Result<PathBuf> {
-        let names = child_components(relative)?;
+        let names = child_components(relative, self.project_runtime)?;
         self.check_root()?;
         let mut path = self.root.clone();
         for (index, name) in names.iter().enumerate() {
@@ -168,7 +181,7 @@ impl DocumentWorkspace {
 
     /// Create a nested directory under one of the recognised working areas.
     pub fn ensure_directory(&self, relative: &Path) -> io::Result<PathBuf> {
-        let names = child_components(relative)?;
+        let names = child_components(relative, self.project_runtime)?;
         self.check_root()?;
         let mut current = PathBuf::new();
         for name in names {
@@ -202,7 +215,7 @@ impl DocumentWorkspace {
     /// Atomically replace one generated file. Input snapshots and private metadata are read-only
     /// to agent file tools; the caller must explicitly use [`Self::write_snapshot`] for input.
     pub fn write_file(&self, relative: &Path, bytes: &[u8]) -> io::Result<PathBuf> {
-        let names = child_components(relative)?;
+        let names = child_components(relative, self.project_runtime)?;
         if names.first().is_some_and(|s| s == "input") {
             return Err(invalid("input snapshots are read-only to agent file tools"));
         }
@@ -213,6 +226,15 @@ impl DocumentWorkspace {
     pub fn write_snapshot(&self, bytes: &[u8]) -> io::Result<PathBuf> {
         let relative = self.snapshot.strip_prefix(&self.root).map_err(io::Error::other)?;
         self.atomic_write(relative, bytes)
+    }
+
+    /// Host-only replacement beside current.pdf. An absent index replaces old context with
+    /// an explicit unavailable marker, so a later turn cannot read stale extracted text.
+    pub fn write_text_index(&self, bytes: &[u8]) -> io::Result<PathBuf> {
+        if bytes.len() > crate::copilot::MAX_TEXT_INDEX_BYTES {
+            return Err(invalid("the native text index exceeds its limit"));
+        }
+        self.atomic_write(Path::new("input/native-text.json"), bytes)
     }
 
     /// Write an additional input snapshot with its actual format, e.g. `"pdf"` for the native
@@ -323,7 +345,7 @@ fn valid_name(name: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn child_components(path: &Path) -> io::Result<Vec<String>> {
+fn child_components(path: &Path, project_runtime: bool) -> io::Result<Vec<String>> {
     // Parse both separators on every platform, so Linux-created manifests/tools cannot smuggle
     // Windows paths through a later Windows run. Empty and dot components are refused too.
     let text = path.to_str().ok_or_else(|| invalid("workspace paths must be Unicode"))?;
@@ -335,7 +357,7 @@ fn child_components(path: &Path) -> io::Result<Vec<String>> {
             return Err(invalid("the workspace path is nested too deeply"));
         }
     }
-    if !names.first().is_some_and(|s| DIRECTORIES.contains(&s.as_str()) || s == ".venv") {
+    if !names.first().is_some_and(|s| DIRECTORIES.contains(&s.as_str()) || s == ".venv" || (project_runtime && s == "tools")) {
         return Err(invalid("use an input, outputs, temporary, cache, home, Hermes or venv folder"));
     }
     Ok(names)

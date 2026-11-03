@@ -70,7 +70,9 @@ impl Automation {
             let bytes = doc.bytes.clone();
             let document_name = doc.name.clone();
             let path = doc.path.clone();
-            let text = self.page_texts(id, &[page])?.into_iter().next().ok_or_else(|| failed("this page has no readable text"))?.plain_text();
+            let snapshot = pdfcraft_engine::copilot_text::TextSnapshot::from_document(doc).map_err(failed)?;
+            let (text_index, text) = snapshot.extract_context(page);
+            let text = text.unwrap_or_default();
             if !self.copilots.contains_key(&id) {
                 let backend = self.copilot_backend.clone().ok_or_else(|| failed("the Hermes document copilot is not configured"))?;
                 // Check before connect: that operation creates the document workspace.
@@ -105,7 +107,7 @@ impl Automation {
             if !chat.finished {
                 return Err(failed("the document copilot is still working; check its status or stop it"));
             }
-            chat.conversation.send(Turn { pdf: bytes, revision, page: page + 1, text, message }).map_err(failed)?;
+            chat.conversation.send(Turn { pdf: bytes, revision, page: page + 1, text, text_index: Some(text_index), message }).map_err(failed)?;
             chat.answer.clear();
             chat.activity.clear();
             chat.permission = None;
@@ -154,11 +156,13 @@ mod tests {
     struct Canned {
         root: PathBuf,
         connects: Arc<AtomicUsize>,
+        indexes: Arc<std::sync::Mutex<Vec<Option<pdfcraft_ai::copilot::NativeTextIndex>>>>,
     }
     struct Reply {
         root: PathBuf,
         queue: VecDeque<Update>,
         packet: Vec<u8>,
+        indexes: Arc<std::sync::Mutex<Vec<Option<pdfcraft_ai::copilot::NativeTextIndex>>>>,
     }
     impl pdfcraft_ai::copilot::Backend for Canned {
         fn workspace_root(&self) -> Option<&Path> {
@@ -166,11 +170,12 @@ mod tests {
         }
         fn connect(&self, _: DocumentContext) -> std::result::Result<Box<dyn Conversation>, String> {
             self.connects.fetch_add(1, Ordering::SeqCst);
-            Ok(Box::new(Reply { root: self.root.clone(), queue: VecDeque::new(), packet: Vec::new() }))
+            Ok(Box::new(Reply { root: self.root.clone(), queue: VecDeque::new(), packet: Vec::new(), indexes: self.indexes.clone() }))
         }
     }
     impl Conversation for Reply {
         fn send(&mut self, turn: Turn) -> std::result::Result<(), String> {
+            self.indexes.lock().unwrap().push(turn.text_index);
             self.packet=serde_json::to_vec(&json!({"format":pdfcraft_ai::review::FORMAT,"revision":turn.revision,"summary":"Add synthetic note","changes":[{"kind":"comment","page":1,"text":"Reviewed note"}]})).map_err(|e|e.to_string())?;
             self.queue.extend([
                 Update::Text("Prepared a note.".into()),
@@ -201,9 +206,29 @@ mod tests {
         let bytes = a.session.create_from_text("Review", "Synthetic review text.").unwrap();
         let id = a.session.open("review.pdf", None, bytes, None).unwrap();
         let count = Arc::new(AtomicUsize::new(0));
-        a.copilot_backend = Some(Arc::new(Canned { root, connects: count.clone() }));
+        a.copilot_backend = Some(Arc::new(Canned { root, connects: count.clone(), indexes: Default::default() }));
         (a, id, count)
     }
+    #[test]
+    fn automation_turn_supplies_native_text_for_both_pages() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut a = Automation::new();
+        let first = a.session.create_from_text("First", "FIRST PAGE UNIQUE").unwrap();
+        let second = a.session.create_from_text("Second", "SECOND PAGE UNIQUE").unwrap();
+        let combined = a.session.combine(&[("first.pdf".into(), first), ("second.pdf".into(), second)]).unwrap();
+        let id = a.session.open("two.pdf", None, combined, None).unwrap();
+        let indexes = Arc::new(std::sync::Mutex::new(Vec::new()));
+        a.copilot_backend = Some(Arc::new(Canned { root: dir.path().to_owned(), connects: Default::default(), indexes: indexes.clone() }));
+        a.call("copilot_chat", &json!({"doc":id.0,"page":1,"message":"Summarize both pages"})).unwrap();
+        let indexes = indexes.lock().unwrap();
+        let index = indexes[0].as_ref().unwrap();
+        assert_eq!(index.covered_pages, [1, 2]);
+        assert_eq!(index.total_pages, 2);
+        assert!(index.pages[0].text.contains("FIRST PAGE UNIQUE"));
+        assert!(index.pages[1].text.contains("SECOND PAGE UNIQUE"));
+        assert!(!index.truncated);
+    }
+
     #[test]
     fn workspace_root_is_checked_before_backend_connects() {
         let dir = tempfile::tempdir().unwrap();

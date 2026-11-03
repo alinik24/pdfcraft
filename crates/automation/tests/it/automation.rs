@@ -5366,6 +5366,76 @@ fn doc_info_rects_are_displayed_page_coordinates() {
     assert!(close(&moved, &rotated["rect"]), "link moved: {moved} vs {}", rotated["rect"]);
 }
 
+/// Markup export retains separate QuadPoints regions rather than the union Rect, including
+/// fractional coordinates, non-zero CropBox origins and both quarter-turn rotations. The
+/// text between the marked regions remains unselected, and the exported quads can be reused.
+#[test]
+fn comment_list_preserves_disjoint_markup_quads_after_save_and_reopen() {
+    let dir = workdir("comment-quad-regions");
+    let body = "BT /F1 10 Tf 60 295 Td (Unmarked neighbouring line) Tj ET";
+    let stream = format!("<< /Length {} >>\nstream\n{body}\nendstream", body.len());
+    let quads = "60.125 320.25 100.125 320.25 60.125 310.25 100.125 310.25 65.125 280.25 90.125 280.25 65.125 270.25 90.125 270.25";
+    let highlight90 = format!("<< /Type /Annot /Subtype /Highlight /NM (highlight90) /Rect [60 270 101 321] /QuadPoints [{quads}] >>");
+    let underline90 = format!("<< /Type /Annot /Subtype /Underline /NM (underline90) /Rect [60 270 101 321] /QuadPoints [{quads}] >>");
+    let highlight270 = highlight90.replace("highlight90", "highlight270");
+    let underline270 = underline90.replace("underline90", "underline270");
+    let bytes = pdf_of(&[
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 /MediaBox [0 0 300 400] >>",
+        "<< /Type /Page /Parent 2 0 R /CropBox [40 60 240 360] /Rotate 90 /Annots [4 0 R 5 0 R] /Contents 9 0 R /Resources << /Font << /F1 10 0 R >> >> >>",
+        &highlight90,
+        &underline90,
+        "<< /Type /Page /Parent 2 0 R /CropBox [40 60 240 360] /Rotate 270 /Annots [7 0 R 8 0 R] /Contents 9 0 R /Resources << /Font << /F1 10 0 R >> >> >>",
+        &highlight270,
+        &underline270,
+        &stream,
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]);
+    std::fs::write(dir.join("regions.pdf"), bytes).unwrap();
+    let mut a = auto(&dir);
+    let doc = ok(&mut a, "doc_open", json!({"path": "regions.pdf"}))["doc"].as_u64().unwrap();
+    // These expectations are calculated from the fixture's crop/rotation, independently of
+    // PageInfo's transform. Each array keeps the source QuadPoints corner order.
+    let expected90 =
+        json!([[260.25, 20.125, 260.25, 60.125, 250.25, 20.125, 250.25, 60.125], [220.25, 25.125, 220.25, 50.125, 210.25, 25.125, 210.25, 50.125]]);
+    let expected270 =
+        json!([[39.75, 179.875, 39.75, 139.875, 49.75, 179.875, 49.75, 139.875], [79.75, 174.875, 79.75, 149.875, 89.75, 174.875, 89.75, 149.875]]);
+    let check = |listed: &Value| {
+        assert_eq!(listed["count"], 4);
+        for c in listed["comments"].as_array().unwrap() {
+            assert_eq!(c["quads_coordinate_space"], "display-points-top-left-y-down");
+            let expected = if c["page"] == 1 { &expected90 } else { &expected270 };
+            let actual = c["quads"].as_array().unwrap();
+            assert_eq!(actual.len(), 2, "must not fill the gap containing neighbouring text");
+            for (actual, expected) in actual.iter().zip(expected.as_array().unwrap()) {
+                let actual = actual.as_array().unwrap();
+                let expected = expected.as_array().unwrap();
+                assert_eq!(actual.len(), 8);
+                assert!(actual.iter().zip(expected).all(|(a, e)| (a.as_f64().unwrap() - e.as_f64().unwrap()).abs() < 0.0001), "{c}");
+            }
+        }
+    };
+    let before = ok(&mut a, "comment_list", json!({"doc": doc}));
+    check(&before);
+    ok(&mut a, "doc_save", json!({"doc": doc, "path": "saved-regions.pdf"}));
+    let reopened = ok(&mut a, "doc_open", json!({"path": "saved-regions.pdf"}))["doc"].as_u64().unwrap();
+    let saved = ok(&mut a, "comment_list", json!({"doc": reopened}));
+    check(&saved);
+    assert_eq!(saved, before, "saving retains annotation identity, rect and every original region");
+    for c in saved["comments"].as_array().unwrap() {
+        let kind = if c["type"] == "Highlight" { "highlight" } else { "underline" };
+        ok(&mut a, "comment_add", json!({"doc": reopened, "page": c["page"], "type": kind, "quads": c["quads"], "contents": "copied-regions"}));
+    }
+    ok(&mut a, "doc_save", json!({"doc": reopened, "path": "copied-regions.pdf"}));
+    let copied = ok(&mut a, "doc_open", json!({"path": "copied-regions.pdf"}))["doc"].as_u64().unwrap();
+    let mut listed = ok(&mut a, "comment_list", json!({"doc": copied}));
+    let comments = listed["comments"].as_array_mut().unwrap();
+    comments.retain(|c| c["contents"] == "copied-regions");
+    let count = comments.len();
+    listed["count"] = json!(count);
+    check(&listed);
+}
+
 /// `comment_add` places a note's or an attachment's icon with its displayed top-left corner at
 /// `at`, on rotated pages too. The engine anchors the icon at the user-space top-left of its
 /// `/Rect`, which after `/Rotate` is another corner of the square as displayed; converting the

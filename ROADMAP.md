@@ -1,5 +1,7 @@
 # PdfCraft roadmap
 
+> 2026-11-02: `.5` portable prerelease pins `f9e7dbd7e99712ea28c476b367ba923895949a5b`: reusable private Copilot connection selection/diagnostics and saved-HTML refresh-failure consistency. Local packaged checks passed. The second-machine public download, checksum, installation and 23 core checks passed, but its live whole-document Copilot test failed while attempting a parser dependency installation. Full `.5` acceptance is incomplete; existing `.4` installations are retained. Voice, embedded browsing and semantic/live-DOM editing remain future work.
+
 > 2026-11-02: connection-onboarding repair in development: explicit private connection selection, relocation-stable discovery, visible setup errors and a bounded local runtime check. Current installed local Hermes summary was reverified. Peer runtime was unavailable; final new-build acceptance is pending. No additional document-edit capabilities are claimed.
 
 > 2026-10-27: development branch adds one Hermes ACP copilot conversation in the existing assistant panel, isolated document workspaces, explicit review/apply and headless parity. Local unit and synthetic UI checks pass; live runtime and reusable installation checks are being completed. Voice and semantic DOM editing remain proposals; PDF parity estimates unchanged.

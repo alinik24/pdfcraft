@@ -189,6 +189,24 @@ impl Automation {
                 "rect": crate::view_rect(&doc.info, c.page, c.shown_rect(doc.info.pages.get(c.page).map_or(0, |p| p.rotation))),
                 "color": c.color.map(hex),
             });
+            // Keep every QuadPoints region and its corner order: a union rectangle would
+            // include unmarked neighbouring text between disjoint highlights. Do not round
+            // these points, so they can be supplied to comment_add without losing precision.
+            if !c.quads.is_empty() {
+                let page = doc.info.pages.get(c.page);
+                v["quads"] = json!(
+                    c.quads
+                        .iter()
+                        .map(|q| {
+                            let [x0, y0, x1, y1, x2, y2, x3, y3] = *q;
+                            let [[x0, y0], [x1, y1], [x2, y2], [x3, y3]] =
+                                [[x0, y0], [x1, y1], [x2, y2], [x3, y3]].map(|[x, y]| page.map_or([x, y], |p| p.user_to_view(x, y)));
+                            [x0, y0, x1, y1, x2, y2, x3, y3]
+                        })
+                        .collect::<Vec<_>>()
+                );
+                v["quads_coordinate_space"] = json!(if page.is_some() { "display-points-top-left-y-down" } else { "pdf-user-space" });
+            }
             // A line's ends, or the corners of connected lines, a polygon or a cloud, as
             // comment_edit's `points` takes them.
             // Unchanged on a page the viewer could not read, as `rect` is.

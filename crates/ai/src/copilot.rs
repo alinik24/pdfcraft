@@ -7,6 +7,39 @@ use serde_json::Value;
 
 use crate::workspace::DocumentIdentity;
 
+/// Native extraction only: no source paths, opening passwords or connection state.
+#[derive(Clone, Debug)]
+pub struct NativeTextIndex {
+    pub revision: u64,
+    pub total_pages: usize,
+    pub covered_pages: Vec<usize>,
+    /// Pages with failed extraction or no extractable text (blank or image-only).
+    pub unreadable_pages: Vec<usize>,
+    pub truncated: bool,
+    pub pages: Vec<NativeTextPage>,
+}
+
+#[derive(Clone, Debug)]
+pub struct NativeTextPage {
+    /// One-based PDF page number.
+    pub page: usize,
+    pub text: String,
+    pub truncated: bool,
+}
+
+pub const NATIVE_TEXT_FORMAT: &str = "pdfcraft-native-text/1";
+
+pub const MAX_TEXT_INDEX_BYTES: usize = 2 * 1024 * 1024;
+pub const MAX_INLINE_TEXT_INDEX_BYTES: usize = 32 * 1024;
+
+impl NativeTextIndex {
+    pub fn to_json(&self) -> Value {
+        serde_json::json!({"format":NATIVE_TEXT_FORMAT,"available":true,"revision":self.revision,"total_pages":self.total_pages,
+            "covered_pages":self.covered_pages,"unreadable_pages":self.unreadable_pages,"truncated":self.truncated,
+            "pages":self.pages.iter().map(|p| serde_json::json!({"page":p.page,"text":p.text,"truncated":p.truncated})).collect::<Vec<_>>()})
+    }
+}
+
 pub struct DocumentContext {
     pub identity: DocumentIdentity,
     pub name: String,
@@ -19,6 +52,7 @@ pub struct Turn {
     /// One-based source page. The supplied passage may be a narrower selection.
     pub page: usize,
     pub text: String,
+    pub text_index: Option<NativeTextIndex>,
     pub message: String,
 }
 

@@ -23,6 +23,35 @@ const QUEUE_SIZE: usize = 64;
 const MAX_PENDING: usize = 16;
 const MAX_TURN_BYTES: usize = 2 * 1024 * 1024;
 
+/// An explicitly configured MCP executable inside the agent runtime. Credentials
+/// remain in its inherited runtime environment, never in ACP arguments. A server
+/// is not installed, started or registered merely by opening the assistant.
+#[derive(Clone)]
+pub struct McpServer {
+    pub name: String,
+    pub command: String,
+    pub args: Vec<String>,
+}
+
+impl McpServer {
+    pub fn validate(&self) -> Result<(), Error> {
+        if self.name.is_empty()
+            || self.name.len() > 64
+            || !self.name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+            || !self.command.starts_with('/')
+            || self.command.len() > 4096
+            || self.command.chars().any(char::is_control)
+            || self.command.split('/').any(|part| part == ".." || part == ".")
+            || self.args.len() > 32
+            || self.args.iter().any(|arg| arg.len() > 8192 || arg.chars().any(char::is_control))
+            || self.args.iter().map(String::len).sum::<usize>() > 32 * 1024
+        {
+            return Err(Error::Configuration);
+        }
+        Ok(())
+    }
+}
+
 /// Private launch configuration. Intentionally does not implement `Debug`.
 pub struct Launch {
     pub executable: PathBuf,
@@ -90,6 +119,7 @@ pub struct Client {
     commands: mpsc::SyncSender<Input>,
     events: mpsc::Receiver<Event>,
     stop: Arc<AtomicBool>,
+    closed: Arc<AtomicBool>,
     next_id: u64,
     cwd: String,
 }
@@ -177,11 +207,29 @@ impl Client {
         secrets.retain(|value| !value.is_empty());
         secrets.sort_by_key(|value| std::cmp::Reverse(value.len()));
         let worker_stop = stop.clone();
+        let closed = Arc::new(AtomicBool::new(false));
+        let worker_closed = closed.clone();
         thread::Builder::new()
             .name("pdfcraft-acp".into())
-            .spawn(move || supervise(child, incoming, frames, wire, events_tx, worker_stop, launch.timeout, secrets))
+            .spawn(move || {
+                supervise(child, incoming, frames, wire, events_tx, worker_stop, launch.timeout, secrets);
+                // supervise has returned and its owned child has been killed/reaped.
+                worker_closed.store(true, Ordering::Release);
+            })
             .map_err(|_| Error::Start)?;
-        Ok(Self { commands, events, stop, next_id: 1, cwd })
+        Ok(Self { commands, events, stop, closed, next_id: 1, cwd })
+    }
+
+    /// Request shutdown and wait at most two seconds for the owned direct-child
+    /// receipt. A false result is not permission to release shared runtime state.
+    /// The Docker launcher must separately confirm the named container stopped.
+    pub fn shutdown(&self, timeout: Duration) -> bool {
+        self.stop.store(true, Ordering::Release);
+        let deadline = Instant::now() + timeout.min(Duration::from_secs(2));
+        while !self.closed.load(Ordering::Acquire) && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+        self.closed.load(Ordering::Acquire)
     }
 
     fn request(&mut self, method: &'static str, params: Value) -> Result<u64, Error> {
@@ -225,6 +273,12 @@ impl Client {
         self.request("session/new", session_params(None, cwd)?)
     }
 
+    /// Reuse the agent's native MCP integration, without synthesizing tool calls
+    /// or creating a second agent. Servers must be explicitly owner configured.
+    pub fn new_session_with_servers_at(&mut self, cwd: &str, servers: &[McpServer]) -> Result<u64, Error> {
+        self.request("session/new", session_params_with_servers(None, cwd, servers)?)
+    }
+
     pub fn load_session(&mut self, session_id: &str) -> Result<u64, Error> {
         let cwd = self.cwd.clone();
         self.load_session_at(session_id, &cwd)
@@ -234,6 +288,10 @@ impl Client {
     /// against the host filesystem. See [`Self::new_session_at`].
     pub fn load_session_at(&mut self, session_id: &str, cwd: &str) -> Result<u64, Error> {
         self.request("session/load", session_params(Some(session_id), cwd)?)
+    }
+
+    pub fn load_session_with_servers_at(&mut self, session_id: &str, cwd: &str, servers: &[McpServer]) -> Result<u64, Error> {
+        self.request("session/load", session_params_with_servers(Some(session_id), cwd, servers)?)
     }
 
     /// Prompt only after a session response. Document context is untrusted data;
@@ -285,10 +343,26 @@ fn validate_id(id: &str) -> Result<(), Error> {
 }
 
 fn session_params(session_id: Option<&str>, cwd: &str) -> Result<Value, Error> {
+    session_params_with_servers(session_id, cwd, &[])
+}
+
+fn session_params_with_servers(session_id: Option<&str>, cwd: &str, servers: &[McpServer]) -> Result<Value, Error> {
     if cwd.trim().is_empty() || cwd.len() > 8192 || cwd.chars().any(char::is_control) {
         return Err(Error::Configuration);
     }
-    let mut params = json!({"cwd":cwd,"mcpServers":[]});
+    if servers.len() > 8 {
+        return Err(Error::Limit);
+    }
+    let mut names = std::collections::HashSet::new();
+    let mut definitions = Vec::new();
+    for server in servers {
+        server.validate()?;
+        if !names.insert(&server.name) {
+            return Err(Error::Configuration);
+        }
+        definitions.push(json!({"name":server.name,"command":server.command,"args":server.args,"env":[]}));
+    }
+    let mut params = json!({"cwd":cwd,"mcpServers":definitions});
     if let Some(session_id) = session_id {
         validate_id(session_id)?;
         let object = params.as_object_mut().ok_or(Error::Protocol)?;
@@ -617,6 +691,49 @@ mod tests {
     use super::*;
     use std::io::Cursor;
 
+    #[cfg(windows)]
+    #[test]
+    fn shutdown_receipt_waits_for_the_owned_direct_child() -> Result<(), Box<dyn std::error::Error>> {
+        let system = std::env::var_os("SystemRoot").ok_or("SystemRoot is missing")?;
+        let executable = PathBuf::from(&system).join("System32/WindowsPowerShell/v1.0/powershell.exe");
+        let root = std::env::temp_dir().canonicalize()?.join(format!("pdfcraft-acp-shutdown-{}", std::process::id()));
+        std::fs::create_dir(&root)?;
+        let result = (|| -> Result<(), Box<dyn std::error::Error>> {
+            let receipt = root.join("started.txt");
+            let environment = BTreeMap::from([
+                ("SystemRoot".into(), system.to_string_lossy().into_owned()),
+                ("PDFCRAFT_TEST_RECEIPT".into(), receipt.to_string_lossy().into_owned()),
+            ]);
+            let client = Client::spawn(Launch {
+                executable,
+                args: vec![
+                    "-NoProfile".into(),
+                    "-NonInteractive".into(),
+                    "-Command".into(),
+                    "[IO.File]::WriteAllText($env:PDFCRAFT_TEST_RECEIPT, 'started'); Start-Sleep -Seconds 30".into(),
+                ],
+                cwd: root.clone(),
+                environment,
+                secrets: vec![],
+                timeout: Duration::from_secs(15),
+            })?;
+            let deadline = Instant::now() + Duration::from_secs(6);
+            while !receipt.is_file() && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(10));
+            }
+            assert!(receipt.is_file(), "the owned child must have started before shutdown is tested");
+            assert!(!client.closed.load(Ordering::Acquire));
+            assert!(
+                client.shutdown(Duration::from_secs(2)),
+                "the supervisor must acknowledge child kill/reap before shared ownership can be released"
+            );
+            assert!(client.closed.load(Ordering::Acquire));
+            Ok(())
+        })();
+        std::fs::remove_dir_all(root)?;
+        result
+    }
+
     #[test]
     fn session_payload_preserves_agent_container_path_namespace() -> Result<(), Error> {
         assert_eq!(session_params(None, "/workspace")?, json!({"cwd":"/workspace","mcpServers":[]}));
@@ -631,6 +748,28 @@ mod tests {
         }
         assert_eq!(session_params(None, &"x".repeat(8193)), Err(Error::Configuration));
         assert_eq!(session_params(Some("bad\nsession"), "/workspace"), Err(Error::Protocol));
+        Ok(())
+    }
+
+    #[test]
+    fn explicit_mcp_tools_are_forwarded_on_new_and_resumed_sessions() -> Result<(), Error> {
+        let server = McpServer {
+            name: "document_tools".into(),
+            command: "/opt/tools/bin/docling-mcp".into(),
+            args: vec!["--transport".into(), "stdio".into()],
+        };
+        for id in [None, Some("saved-session")] {
+            let params = session_params_with_servers(id, "/workspace", std::slice::from_ref(&server))?;
+            assert_eq!(
+                params["mcpServers"][0],
+                json!({"name":"document_tools","command":"/opt/tools/bin/docling-mcp","args":["--transport","stdio"],"env":[]})
+            );
+            assert_eq!(params.get("sessionId").and_then(Value::as_str), id);
+        }
+        assert_eq!(session_params_with_servers(None, "/workspace", &[server.clone(), server]).err(), Some(Error::Configuration));
+        for command in ["tool", "/tools/../bin/tool", "/bin/tool\ncommand"] {
+            assert_eq!(McpServer { name: "tools".into(), command: command.into(), args: vec![] }.validate(), Err(Error::Configuration));
+        }
         Ok(())
     }
 

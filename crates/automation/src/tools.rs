@@ -744,7 +744,7 @@ pub fn tools() -> Vec<ToolDef> {
             .ro().cmd("measure.snap").with(schema(json!({"doc":doc(),"page":{"type":"integer","minimum":1},"at":point(),"tolerance":{"type":"number","minimum":0,"maximum":10000},"endpoints":{"type":"boolean"},"midpoints":{"type":"boolean"},"intersections":{"type":"boolean"},"paths":{"type":"boolean"}}), &["doc","page","at"])),
         t("measure_export", "Export measurements as CSV", "Atomically write saved measurement values, labels, authors and scale ratios as spreadsheet-safe CSV. Returns how many unsupported measurements were left out.")
             .cmd("measure.export").with(schema(json!({"doc":doc(),"out":path_arg()}), &["doc","out"])),
-        t("comment_list", "List comments", "Every comment (annotation other than links, form widgets and pop-ups) with its page, index, id, type, author, text, date, rectangle, colour, review status, checkmark and replies (each with its own status and checkmark).")
+        t("comment_list", "List comments", "Every comment (annotation other than links, form widgets and pop-ups) with its page, index, id, type, author, text, date, rectangle, colour, review status, checkmark and replies (each with its own status and checkmark). Text markup also includes quads: every original QuadPoints region as 8 numbers in the same corner order comment_add accepts, without merging disjoint regions. quads_coordinate_space is display-points-top-left-y-down (1/72 inch, cropped and rotated displayed page), or pdf-user-space if page geometry could not be read; raw fallback quads must not be passed as displayed coordinates.")
             .ro()
             .with(schema(json!({ "doc": doc(), "page": { "type": "integer", "minimum": 1, "description": "Only this page." } }), &["doc"])),
         t(

@@ -22,6 +22,9 @@ pub mod acp;
 pub mod workspace;
 
 #[cfg(not(target_arch = "wasm32"))]
+mod project_runtime;
+
+#[cfg(not(target_arch = "wasm32"))]
 pub mod copilot;
 
 #[cfg(not(target_arch = "wasm32"))]

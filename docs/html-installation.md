@@ -1,11 +1,7 @@
 # Install the PdfCraft HTML annotation contribution
 
-Status: Windows x64 portable development releases. The earlier `.2` release passed
-public-download installation and 23 HTML/PDF checks on a second Windows machine,
-plus local GUI checks. The conversational copilot is newer development work; see each
-release's notes for its completed checks. Interactive GUI use on the second
-machine has not been verified.
-Reviewed 2026-10-27.
+Status: Windows x64 portable prerelease [`.5`](https://github.com/alinik24/pdfcraft/releases/tag/v0.13.0-html-review.5), source `f9e7dbd7e99712ea28c476b367ba923895949a5b`. Local packaged checks passed. The second-machine public download, checksum, installation and 23 core checks passed, but its live whole-document Copilot test failed while attempting a parser dependency installation. Full `.5` acceptance is incomplete; existing `.4` installations are retained. Automated GUI checks are distinct from independent human operation and fresh-OS testing.
+Reviewed 2026-11-02.
 
 This contribution by @alinik24 is based on [PdfCraft by the ArtCraft team and contributors](https://github.com/storytold/pdfcraft).
 It adds HTML files to the existing PDF editor. It is not an official upstream release.
@@ -19,7 +15,10 @@ Verify the ZIP with `Get-FileHash -Algorithm SHA256` and compare its hash with t
 downloaded `SHA256SUMS` before extracting it.
 Extract the complete archive into a writable folder and open `pdfcraft.exe`.
 Keep the bundled models, licences, notices and `portable.txt` beside it.
-Portable settings and recovery files live in `PdfCraftData/` beside this copy.
+Portable interface settings and recovery files live in `PdfCraftData/` beside this copy.
+The explicitly selected Copilot connection reference is private per-user state;
+see [connection discovery and precedence](assistant.md#private-setup). The model
+credential remains in its existing local environment or referenced credential file.
 This development package is unsigned and is not an MSI installer.
 
 `BUILD-INFO.json` records the complete source commit for that package. Use its
@@ -28,6 +27,20 @@ branch. The earlier installation test downloaded the public release, verified it
 checksum, and tested HTML/PDF open, annotations, editing, undo/redo, save, extraction
 and reopening. Assistant behavior and configuration are described in
 [AI assistant](assistant.md).
+
+## Upgrade and rollback
+
+Keep the previous version, its settings and your private agent binding. Extract a
+new release into a fresh versioned folder and verify it before replacing anything.
+Save your work and close running PdfCraft windows before replacing executables;
+Windows can lock files while the program runs. No uninstall or fresh Git clone is
+required for this update. Update shortcuts and Open With to the executable you
+intend to use, and keep the bundled models/licences beside a portable install.
+
+The selected connection reference survives application moves. A previous setup
+found only beside an old executable may need **Choose connection file** once.
+Do not copy `.env`, account files, private profiles or document workspaces into a
+public package or Git repository. Retaining the old version provides rollback.
 
 ## Build on Windows
 

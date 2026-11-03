@@ -1,11 +1,21 @@
-# PdfCraft: native HTML review contribution
+# PdfCraft: PDF and HTML review with Hermes Copilot
 
 An unofficial development fork of [storytold/pdfcraft](https://github.com/storytold/pdfcraft), maintained by [@alinik24](https://github.com/alinik24).
 PdfCraft's original authors and contributors provide the Rust PDF editor. This fork adds native HTML annotation and editing through that existing editor.
 
 Open HTML documents alongside PDFs, select text, highlight passages, add comments and replies, draw, edit the page revision, undo changes and save the review inside the HTML file. Agents can extract structured review JSON without an application-local database.
 
-**Development status:** native HTML review passed local GUI checks and 23 HTML/PDF checks after public-download installation on a second machine. Interactive GUI use on that second machine remains unverified. See the [Windows portable releases](https://github.com/alinik24/pdfcraft/releases) for each version's assistant support, checksums and validation. Voice, embedded browsing and semantic design editing remain future work.
+**Windows prerelease:** [v0.13.0-html-review.5](https://github.com/alinik24/pdfcraft/releases/tag/v0.13.0-html-review.5), source `f9e7dbd7e99712ea28c476b367ba923895949a5b`. Local packaged checks passed. The second-machine public download, checksum, installation and 23 core checks passed, but its live whole-document Copilot test failed while attempting a parser dependency installation. Full `.5` acceptance is incomplete; existing `.4` installations are retained. These are automated checks, not an independent human or clean-OS installation test. Voice, embedded browsing and semantic design editing remain future work.
+
+[Agent tools and structured extraction: development status](docs/agent-tools.md).
+
+## Download and connect
+
+Download the portable ZIP and `SHA256SUMS` from the release above, verify the checksum and extract the complete package. Run **pdfcraft.exe > All tools > AI assistant**. Use **Choose connection file**, then **Check connection**, and send a message about an open PDF or HTML. Docker and a reviewed private Hermes runtime/profile are optional requirements for Copilot; ordinary document editing remains available without them. Keys, profiles and memory are never bundled. See [the onboarding guide](docs/assistant.md) and [installation/upgrade instructions](docs/html-installation.md).
+
+For edits, use **Review changes > Apply changes > Save**. Ask for whole-document summaries explicitly; selected text or the current page supplies immediate context, and Hermes can read the full PDF snapshot. Highlights and underlines use exact quoted text. Scanned documents need OCR for text anchors.
+
+`main` mirrors upstream. The default `feat/html-review-distribution` branch carries this fork's release work; tags pin the exact packaged source. The HTML-only upstream PR and the fork Copilot are separate contributions.
 
 ## Install from source
 

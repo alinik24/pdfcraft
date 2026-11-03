@@ -435,6 +435,22 @@ impl ChatDocument {
             self.fail(e);
         }
     }
+
+    /// Explicitly release this panel's idle runtime while preserving document/chat history.
+    fn disconnect_idle(&mut self) {
+        if self.busy() {
+            return;
+        }
+        if let Some(mut connection) = self.connection.take()
+            && let Err(error) = connection.cancel()
+        {
+            self.error = Some(error.chars().take(4000).collect());
+        }
+        self.permission = None;
+        self.proposal = None;
+        self.prepared = None;
+        self.status.clear();
+    }
     fn decide(&mut self, allow: bool) {
         if let Some((id, _, _)) = self.permission.take()
             && let Some(connection) = &mut self.connection
@@ -592,7 +608,13 @@ impl PdfCraftApp {
         let source = Source { doc: id, generation: doc.edit_generation(), page, name: doc.name.clone(), selection: selected.is_some() };
         let source_for_worker = source.clone();
         let bytes = doc.bytes.clone();
-        let password = doc.password.as_deref().map(Arc::from);
+        let text_snapshot = match pdfcraft_engine::copilot_text::TextSnapshot::from_document(doc) {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                state.fail(error);
+                return;
+            }
+        };
         let context = DocumentContext { identity, name: doc.name.clone() };
         let mut connection = state.connection.take();
         let ctx = self.ctx.clone();
@@ -600,27 +622,20 @@ impl PdfCraftApp {
         let (tx, rx) = mpsc::channel();
         let worker = move || {
             let outcome = pdfcraft_engine::guard(|| {
-                let text = match selected {
-                    Some((_, text)) => text,
-                    None => {
-                        let mut renderer =
-                            pdfcraft_render::PageRenderer::new(bytes.clone(), pdfcraft_render::RenderConfig { password, ..Default::default() });
-                        let rendered = renderer.render(pdfcraft_render::RenderRequest {
-                            page,
-                            kind: pdfcraft_render::RequestKind::Text,
-                            tile: None,
-                            scale: 1.0,
-                            tag: 0,
-                            preview: false,
-                        });
-                        rendered.text.ok_or_else(|| tl!("This page has no readable text. Try Recognize text first.").to_string())?.plain_text()
-                    }
-                };
+                let (text_index, current_text) = text_snapshot.extract_context(page);
+                let text = selected.map_or_else(|| current_text.unwrap_or_default(), |(_, text)| text);
                 let mut conversation = match connection.take() {
                     Some(c) => c,
                     None => backend.connect(context)?,
                 };
-                conversation.send(Turn { pdf: bytes, revision: source_for_worker.generation, page: page.saturating_add(1), text, message })?;
+                conversation.send(Turn {
+                    pdf: bytes,
+                    revision: source_for_worker.generation,
+                    page: page.saturating_add(1),
+                    text,
+                    text_index: Some(text_index),
+                    message,
+                })?;
                 Ok((conversation, source_for_worker))
             })
             .unwrap_or_else(Err);
@@ -717,6 +732,12 @@ fn connection_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens) {
     let active = app.assistant.connection_check.is_some()
         || app.assistant.chat.documents.iter().any(|d| d.busy() || d.connection.is_some() || d.proposal.is_some() || d.prepared.is_some());
     ui.horizontal_wrapped(|ui| {
+        let busy = app.assistant.connection_check.is_some() || app.assistant.chat.documents.iter().any(ChatDocument::busy);
+        if active && ui.add_enabled(!busy, egui::Button::new(tl!("Disconnect agent conversations"))).clicked() {
+            for document in &mut app.assistant.chat.documents {
+                document.disconnect_idle();
+            }
+        }
         if ui.add_enabled(!active, egui::Button::new(tl!("Check connection"))).clicked() {
             let (tx, rx) = mpsc::channel();
             let ctx = ui.ctx().clone();
@@ -754,7 +775,7 @@ fn connection_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens) {
         }
     });
     if active && app.assistant.connection_check.is_none() {
-        ui.label(tl!("Stop active conversations before changing the agent connection."));
+        ui.label(tl!("Stop active work, then disconnect conversations before changing the agent connection."));
     }
     ui.separator();
 }
@@ -1052,6 +1073,8 @@ mod tests {
         names: Vec<String>,
         turns: Vec<(String, String, usize)>,
         decisions: Vec<bool>,
+        cancellations: usize,
+        indexes: Vec<Option<ai::copilot::NativeTextIndex>>,
     }
     #[derive(Default)]
     struct FakeBackend {
@@ -1107,7 +1130,10 @@ mod tests {
     impl Conversation for FakeConversation {
         fn send(&mut self, turn: Turn) -> Result<(), String> {
             self.revision = turn.revision;
-            self.calls.lock().unwrap().turns.push((turn.text, turn.message, turn.page));
+            let mut calls = self.calls.lock().unwrap();
+            calls.indexes.push(turn.text_index);
+            calls.turns.push((turn.text, turn.message, turn.page));
+            drop(calls);
             self.updates.push_back(Update::Ready);
             if self.proposal {
                 self.updates.extend([
@@ -1130,6 +1156,7 @@ mod tests {
             Ok(self.updates.pop_front())
         }
         fn cancel(&mut self) -> Result<(), String> {
+            self.calls.lock().unwrap().cancellations += 1;
             self.updates.clear();
             self.updates.push_back(Update::Finished);
             Ok(())
@@ -1175,6 +1202,65 @@ mod tests {
             std::thread::sleep(Duration::from_millis(5));
         }
         panic!("copilot did not finish");
+    }
+    #[test]
+    fn idle_disconnect_releases_owned_conversations_and_preserves_document_and_history() {
+        let (mut app, _) = app();
+        let backend = Arc::new(FakeBackend::default());
+        app.copilot_backend = Some(backend.clone());
+        app.send_copilot("Summarize this document".into());
+        wait_chat(&mut app);
+        let id = app.active_ids().unwrap().1;
+        let messages = app.assistant.chat.documents[0].messages.len();
+        let document = app.session.get(id).unwrap().bytes.clone();
+        let mut h = Harness::builder().with_size(egui::vec2(1400.0, 1000.0)).build_eframe(move |_| app);
+        h.run_steps(3);
+        h.get_by_label("Disconnect agent conversations").click();
+        h.run_steps(3);
+        assert!(h.state().assistant.chat.documents[0].connection.is_none());
+        assert_eq!(h.state().assistant.chat.documents[0].messages.len(), messages);
+        assert_eq!(h.state().session.get(id).unwrap().bytes, document);
+        assert_eq!(backend.calls.lock().unwrap().cancellations, 1);
+        assert!(h.query_by_label("Disconnect agent conversations").is_none());
+        assert!(h.query_by_label("Choose connection file").is_some());
+    }
+
+    #[test]
+    fn idle_disconnect_refuses_running_requests_and_reviews() {
+        let calls = Arc::new(Mutex::new(Calls::default()));
+        let mut state = ChatDocument::new(DocId(1));
+        state.connection =
+            Some(Box::new(FakeConversation { calls: calls.clone(), approval: false, proposal: false, revision: 0, updates: Default::default() }));
+        state.running = true;
+        state.disconnect_idle();
+        assert!(state.connection.is_some());
+        state.running = false;
+        let (_tx, rx) = mpsc::channel();
+        state.review_pending = Some(rx);
+        state.disconnect_idle();
+        assert!(state.connection.is_some());
+        assert_eq!(calls.lock().unwrap().cancellations, 0);
+    }
+
+    #[test]
+    fn gui_turn_supplies_both_native_pages_with_current_page_focus() {
+        let (mut app, _) = app();
+        let first = app.session.create_from_text("First", "FIRST PAGE UNIQUE").unwrap();
+        let second = app.session.create_from_text("Second", "SECOND PAGE UNIQUE").unwrap();
+        let combined = app.session.combine(&[("first.pdf".into(), first), ("second.pdf".into(), second)]).unwrap();
+        app.open_bytes("two.pdf", None, combined.as_ref().clone()).unwrap();
+        let backend = Arc::new(FakeBackend::default());
+        app.copilot_backend = Some(backend.clone());
+        app.send_copilot("Summarize both pages".into());
+        wait_chat(&mut app);
+        let calls = backend.calls.lock().unwrap();
+        let index = calls.indexes[0].as_ref().unwrap();
+        assert_eq!(index.total_pages, 2);
+        assert_eq!(index.covered_pages, [1, 2]);
+        assert!(index.pages[0].text.contains("FIRST PAGE UNIQUE"));
+        assert!(index.pages[1].text.contains("SECOND PAGE UNIQUE"));
+        assert!(calls.turns[0].0.contains("FIRST PAGE UNIQUE"));
+        assert!(!index.truncated);
     }
     #[test]
     fn copilot_streams_multiple_turns_without_reconnecting_or_mixing_documents() {

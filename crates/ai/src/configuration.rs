@@ -171,8 +171,55 @@ pub fn load_backend(path: &Path) -> Result<Arc<dyn Backend>, String> {
         Some(value) => value.as_u64().filter(|n| (1..=600).contains(n)).ok_or_else(|| INVALID.to_string())?,
         None => 180,
     };
-    let settings = Settings::new(docker, image, workspace, template, environment)?.with_timeout(Duration::from_secs(timeout))?;
+    let servers = configured_mcp_servers(&config, &environment)?;
+    let project_runtime = match config.get("shared_project_runtime") {
+        None => false,
+        Some(value) => value.as_bool().ok_or_else(|| INVALID.to_string())?,
+    };
+    let settings = Settings::new(docker, image, workspace, template, environment)?
+        .with_timeout(Duration::from_secs(timeout))?
+        .with_mcp_servers(servers)?
+        .with_project_runtime(project_runtime);
     Ok(Arc::new(ContainerBackend::new(settings)))
+}
+
+fn configured_mcp_servers(config: &Value, credentials: &BTreeMap<String, String>) -> Result<Vec<crate::acp::McpServer>, String> {
+    let Some(value) = config.get("mcp_servers") else { return Ok(Vec::new()) };
+    let definitions = value.as_array().ok_or_else(|| INVALID.to_string())?;
+    if definitions.len() > 8 {
+        return Err(INVALID.into());
+    }
+    let mut servers = Vec::new();
+    for definition in definitions {
+        let object = definition.as_object().ok_or_else(|| INVALID.to_string())?;
+        if object.keys().any(|key| !["name", "command", "args"].contains(&key.as_str())) {
+            return Err(INVALID.into());
+        }
+        let field = |key| object.get(key).and_then(Value::as_str).map(str::to_owned).ok_or_else(|| INVALID.to_string());
+        let args = match object.get("args") {
+            None => Vec::new(),
+            Some(value) => value
+                .as_array()
+                .filter(|a| a.len() <= 32)
+                .ok_or_else(|| INVALID.to_string())?
+                .iter()
+                .map(|arg| arg.as_str().map(str::to_owned).ok_or_else(|| INVALID.to_string()))
+                .collect::<Result<Vec<_>, _>>()?,
+        };
+        servers.push(crate::acp::McpServer { name: field("name")?, command: field("command")?, args });
+    }
+    let mut names = std::collections::HashSet::new();
+    for server in &servers {
+        server.validate().map_err(|_| INVALID.to_string())?;
+        if !names.insert(&server.name)
+            || credentials
+                .values()
+                .any(|secret| !secret.is_empty() && (server.command.contains(secret) || server.args.iter().any(|a| a.contains(secret))))
+        {
+            return Err(INVALID.into());
+        }
+    }
+    Ok(servers)
 }
 
 fn read_small(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
@@ -284,5 +331,22 @@ mod tests {
         assert_eq!(env_value("MODEL_KEY=\"$(command)\"", "MODEL_KEY"), Some("$(command)".into()));
         assert_eq!(env_value("MODEL_KEY=\"a\\nb\"", "MODEL_KEY"), None);
         assert_eq!(env_value("MODEL_KEY='unterminated", "MODEL_KEY"), None);
+    }
+
+    #[test]
+    fn explicitly_selected_mcp_servers_never_put_credentials_in_arguments() {
+        let credentials = BTreeMap::from([("MODEL_KEY".into(), "synthetic-secret".into())]);
+        assert!(configured_mcp_servers(&serde_json::json!({}), &credentials).unwrap().is_empty());
+        let good =
+            serde_json::json!({"mcp_servers":[{"name":"document_tools","command":"/opt/tools/bin/docling-mcp","args":["--transport","stdio"]}]});
+        assert_eq!(configured_mcp_servers(&good, &credentials).unwrap().len(), 1);
+        for bad in [
+            serde_json::json!({"mcp_servers":[{"name":"tools","command":"/bin/python","args":["synthetic-secret"]}]}),
+            serde_json::json!({"mcp_servers":[{"name":"tools","command":"/bin/python","env":[{"name":"KEY","value":"secret"}]}]}),
+            serde_json::json!({"mcp_servers":[{"name":"tools","command":"relative-tool"}]}),
+            serde_json::json!({"mcp_servers":[{"name":"same","command":"/bin/tool"},{"name":"same","command":"/bin/tool"}]}),
+        ] {
+            assert!(configured_mcp_servers(&bad, &credentials).is_err());
+        }
     }
 }

@@ -1,6 +1,6 @@
 # Document copilot
 
-Status: development branch; completed release checks are recorded in release notes.
+Status: [Windows prerelease `.5`](https://github.com/alinik24/pdfcraft/releases/tag/v0.13.0-html-review.5), packaged source `f9e7dbd7e99712ea28c476b367ba923895949a5b`. Local packaged checks passed. The second-machine public download, checksum, installation and 23 core checks passed, but its live whole-document Copilot test failed while attempting a parser dependency installation. Full `.5` acceptance is incomplete; existing `.4` installations are retained.
 Older HTML prereleases have a placeholder or an earlier assistant.
 
 Open **All tools > AI assistant** for one conversation about the active PDF or HTML.
@@ -57,7 +57,7 @@ document. Saving is always separate from applying a proposal.
 | Runtime image unavailable | Prepare the pinned runtime with the helper below. No image is downloaded automatically. |
 | Credential unavailable | Repair the existing local credential reference. Do not paste keys into chat or the document. |
 | Runtime ready but no model reply | Check your selected model, access and quota in your own Hermes setup. No alternate account or paid fallback is selected automatically. |
-| Connection changed while using a document | Stop active conversations before switching. Existing documents and edit history are retained. |
+| Connection controls are disabled | Stop a running request; for an idle retained conversation, save and close its document tab before switching connections. Reopen it afterward. |
 
 **Check connection** starts only explicit local Docker diagnostic commands, each
 with a ten-second deadline, using your existing Docker context (which can refer
@@ -119,6 +119,13 @@ Keys come from the existing process environment or a referenced local environmen
 file. Values are excluded from command arguments and document metadata. Known key
 values are redacted in protocol text and refused in imported outputs. Review
 content before sharing it publicly.
+
+## Development reuse direction
+
+The source follow-up adds native whole-document text context, idle disconnect,
+explicit ACP MCP server forwarding and opt-in shared project runtime support.
+These are not in the published `.5` package. See [agent tools and extraction](agent-tools.md)
+for reused interfaces, shared memory ownership, semantic extraction and remaining gates.
 
 ## Automation and reuse
 
